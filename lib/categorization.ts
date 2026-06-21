@@ -31,9 +31,13 @@ export const defaultRules: MerchantRule[] = [
   { pattern: "snoonu", category: "Ordering Out" },
   { pattern: "rafeeq", category: "Ordering Out" },
   { pattern: "delivery hero", category: "Ordering Out" },
+  { pattern: "food world", category: "Groceries" },
   { pattern: "restaurant", category: "Restaurants & Cafes" },
   { pattern: "cafe", category: "Restaurants & Cafes" },
   { pattern: "coffee", category: "Restaurants & Cafes" },
+  { pattern: "karak", category: "Restaurants & Cafes" },
+  { pattern: "tea time", category: "Restaurants & Cafes" },
+  { pattern: "jawahar", category: "Restaurants & Cafes" },
   { pattern: "starbucks", category: "Restaurants & Cafes" },
   { pattern: "mcdonald", category: "Restaurants & Cafes" },
   { pattern: "uber", category: "Transport" },
@@ -71,6 +75,7 @@ export const defaultRules: MerchantRule[] = [
   { pattern: "atm", category: "Cash Withdrawal" },
   { pattern: "cash withdrawal", category: "Cash Withdrawal" },
   { pattern: "transfer", category: "Bank Transfer" },
+  { pattern: "fawran", category: "Bank Transfer" },
   { pattern: "standing order", category: "Bank Transfer" },
   { pattern: "iban", category: "Bank Transfer" },
   { pattern: "salary", category: "Salary / Income" }
@@ -91,7 +96,12 @@ export function categorizeMerchant(description: string, userRules: MerchantRule[
   const salaryMatch = direction === "income" && /\b(salary|payroll|wage|bonus|allowance)\b/.test(haystack)
     ? ({ pattern: "salary", category: "Salary / Income" } as MerchantRule)
     : undefined;
-  const defaultMatch = salaryMatch ?? defaultRules.find((rule) => haystack.includes(rule.pattern.toLowerCase()));
+  const incomeMatch = direction === "income" && /\b(transfer|inward|deposit|fawran)\b/.test(haystack)
+    ? ({ pattern: "income transfer", category: "Bank Transfer" } as MerchantRule)
+    : direction === "income" && /\b(reversal|refund|cashback)\b/.test(haystack)
+      ? ({ pattern: "income reversal", category: "Other" } as MerchantRule)
+      : undefined;
+  const defaultMatch = salaryMatch ?? incomeMatch ?? defaultRules.find((rule) => haystack.includes(rule.pattern.toLowerCase()));
   const match = userMatch ?? defaultMatch;
 
   if (match) {

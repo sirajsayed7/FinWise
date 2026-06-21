@@ -132,6 +132,9 @@ function parseDelimited(input: string): RawRow[] {
 }
 
 function parsePdfText(text: string): RawRow[] {
+  const tableRows = parseDebitCreditPdfTable(text);
+  if (tableRows.length) return tableRows;
+
   const rows: RawRow[] = [];
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const datePattern = /(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})/;
@@ -156,6 +159,78 @@ function parsePdfText(text: string): RawRow[] {
   }
 
   return rows;
+}
+
+function parseDebitCreditPdfTable(text: string): RawRow[] {
+  if (!/Date\s+Doc\s+#\s+Description\s+Value Date\s+Debit/i.test(text)) return [];
+
+  const rows: RawRow[] = [];
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const singleLinePattern = /^(\d{2}\/\d{2}\/\d{4})\s+(\d+)\s+(.+?)\s+(\d{2}\/\d{2}\/\d{4})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})$/;
+  const startPattern = /^(\d{2}\/\d{2}\/\d{4})\s+(\d+)\s*(.*)$/;
+  const amountTailPattern = /^(?:(.*?)\s+)?(\d{2}\/\d{2}\/\d{4})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})$/;
+  let current: RawRow | null = null;
+
+  const pushCurrent = () => {
+    if (current) {
+      current.description = current.description.replace(/\s+/g, " ").trim();
+      rows.push(current);
+    }
+  };
+
+  for (const line of lines) {
+    const singleLineMatch = line.match(singleLinePattern);
+    if (singleLineMatch) {
+      pushCurrent();
+      rows.push({
+        date: singleLineMatch[1],
+        description: singleLineMatch[3],
+        "value date": singleLineMatch[4],
+        debit: singleLineMatch[5],
+        credit: singleLineMatch[6],
+        balance: singleLineMatch[7]
+      });
+      current = null;
+      continue;
+    }
+
+    const amountTailMatch = line.match(amountTailPattern);
+    if (current && amountTailMatch) {
+      const extraDescription = amountTailMatch[1]?.trim();
+      if (extraDescription) current.description += ` ${extraDescription}`;
+      current["value date"] = amountTailMatch[2];
+      current.debit = amountTailMatch[3];
+      current.credit = amountTailMatch[4];
+      current.balance = amountTailMatch[5];
+      pushCurrent();
+      current = null;
+      continue;
+    }
+
+    const startMatch = line.match(startPattern);
+    if (startMatch) {
+      pushCurrent();
+      current = { date: startMatch[1], description: startMatch[3] || "" };
+      continue;
+    }
+
+    if (!current || isStatementNoiseLine(line)) continue;
+    if (shouldKeepPdfDescriptionLine(line)) current.description += ` ${line}`;
+  }
+
+  pushCurrent();
+  return rows;
+}
+
+function isStatementNoiseLine(line: string) {
+  return /^(Bank Account eStatement|Name\s*:|Address\s*:|Email\s*:|Phone\s*:|IBAN:|Statement Period|Date\s+Doc\s+#|This is an auto generated|©|Page \d+ of \d+)/i.test(line)
+    || /^In case contact details/i.test(line)
+    || /^same\.$/i.test(line);
+}
+
+function shouldKeepPdfDescriptionLine(line: string) {
+  if (/#\d+/.test(line) || /\b\d{8,}\b/.test(line)) return false;
+  return /[A-Z]{3,}/i.test(line);
 }
 
 function normalizeRow(row: RawRow, bank: string, currency: string, rules: MerchantRule[], index: number): Transaction | null {
