@@ -131,6 +131,25 @@ const merchantInsights = [
   { merchant: "Uber", amount: 542.2, change: "+12%", up: true, color: "bg-slate-900 text-white" }
 ];
 
+const merchantLogoDomains = [
+  { keywords: ["carrefour"], domain: "carrefour.com" },
+  { keywords: ["talabat"], domain: "talabat.com" },
+  { keywords: ["lulu"], domain: "luluhypermarket.com" },
+  { keywords: ["uber"], domain: "uber.com" },
+  { keywords: ["netflix"], domain: "netflix.com" },
+  { keywords: ["apple"], domain: "apple.com" },
+  { keywords: ["amazon"], domain: "amazon.com" },
+  { keywords: ["ooredoo"], domain: "ooredoo.qa" },
+  { keywords: ["vodafone"], domain: "vodafone.qa" },
+  { keywords: ["snoonu"], domain: "snoonu.com" },
+  { keywords: ["monoprix"], domain: "monoprix.qa" },
+  { keywords: ["woqod"], domain: "woqod.com.qa" },
+  { keywords: ["starbucks"], domain: "starbucks.com" },
+  { keywords: ["mcdonald"], domain: "mcdonalds.com" },
+  { keywords: ["spotify"], domain: "spotify.com" },
+  { keywords: ["youtube"], domain: "youtube.com" }
+];
+
 const trendRows = [
   { date: "Jun 1", amount: 900 },
   { date: "Jun 8", amount: 3400 },
@@ -530,7 +549,7 @@ function TransactionsPage({ transactions, setTransactions, setActiveView, onClea
       </div>
 
       {filteredGroups.length ? <button onClick={() => setSheet("More transactions")} className="mt-4 h-12 w-full rounded-[16px] bg-white text-[14px] font-extrabold text-[#0F172A] shadow-[0_8px_22px_rgba(15,23,42,0.04)] ring-1 ring-[#E2E8F0]">Load more transactions</button> : null}
-      <BottomSheet title={sheet} onClose={() => setSheet(null)} />
+      <BottomSheet title={sheet} transactions={transactions} onClose={() => setSheet(null)} />
       <CategoryCorrectionSheet
         transaction={editingTransaction}
         onClose={() => setEditingTransaction(null)}
@@ -564,7 +583,9 @@ function TransactionListRow({ row, onOpen, onActions }: { row: Transaction; onOp
   const avatarClass = categoryAvatarStyles[row.category] ?? categoryAvatarStyles.Other;
   return (
     <div className="grid min-h-[76px] grid-cols-[44px_minmax(0,1fr)_auto_18px] items-center gap-3 px-4 py-3">
-      <button onClick={onOpen} className={`grid h-11 w-11 shrink-0 place-items-center rounded-full text-[17px] font-extrabold ${avatarClass}`}>{row.merchant.slice(0, 1) || "T"}</button>
+      <button onClick={onOpen} className={`grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-full text-[17px] font-extrabold ${avatarClass}`}>
+        <MerchantLogo merchant={row.merchant} fallback={row.merchant.slice(0, 1) || "T"} />
+      </button>
       <button onClick={onOpen} className="min-w-0 text-left">
         <p className="truncate text-[14.5px] font-bold tracking-[-0.01em] text-[#0F172A]">{row.merchant}</p>
         <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11.5px] font-medium text-[#64748B]">
@@ -687,7 +708,9 @@ function InsightsPage({ transactions }: { transactions: Transaction[] }) {
           <div className="mt-3 divide-y divide-[#EEF2F7]">
             {dynamicMerchantInsights.map((item) => (
               <button key={item.merchant} onClick={() => setSheet(`${item.merchant} insight`)} className="flex w-full items-center gap-3 py-2.5 text-left">
-                <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full text-[13px] font-extrabold ${item.color}`}>{item.merchant[0]}</span>
+                <span className={`grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full text-[13px] font-extrabold ${item.color}`}>
+                  <MerchantLogo merchant={item.merchant} fallback={item.merchant[0]} />
+                </span>
                 <span className="min-w-0 flex-1 text-[13px] font-bold text-[#0F172A]">{item.merchant}</span>
                 <span className="text-right">
                   <span className="block whitespace-nowrap text-[12px] font-semibold text-[#334155]">QAR {formatAmount(item.amount)}</span>
@@ -732,7 +755,7 @@ function InsightsPage({ transactions }: { transactions: Transaction[] }) {
           <button onClick={() => setSheet("Savings opportunity")} className="mt-4 h-10 rounded-[13px] bg-white px-5 text-[13px] font-extrabold text-emerald-700 ring-1 ring-emerald-200">See How</button>
         </section>
       </div>
-      <BottomSheet title={sheet} onClose={() => setSheet(null)} />
+      <BottomSheet title={sheet} transactions={transactions} onClose={() => setSheet(null)} />
     </section>
   );
 }
@@ -852,19 +875,236 @@ function CategoryCorrectionSheet({ transaction, onClose, onSave }: { transaction
   );
 }
 
-function BottomSheet({ title, onClose }: { title: string | null; onClose: () => void }) {
+function BottomSheet({ title, transactions, onClose }: { title: string | null; transactions: Transaction[]; onClose: () => void }) {
   if (!title) return null;
 
   return (
     <div className="fixed inset-0 z-20 flex items-end justify-center bg-slate-950/25 px-4 pb-[calc(14px+env(safe-area-inset-bottom))]" onClick={onClose}>
-      <section onClick={(event) => event.stopPropagation()} className="w-full max-w-[430px] rounded-[24px] bg-white p-5 shadow-2xl">
+      <section onClick={(event) => event.stopPropagation()} className="max-h-[82vh] w-full max-w-[430px] overflow-hidden rounded-[24px] bg-white p-5 shadow-2xl">
         <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-slate-200" />
         <h2 className="text-[20px] font-extrabold tracking-[-0.03em] text-[#0F172A]">{title}</h2>
-        <p className="mt-2 text-[14px] font-medium leading-relaxed text-[#64748B]">This interaction is wired in the UI. The next step is connecting it to real filters, records, and saved rules.</p>
+        <div className="mt-4 max-h-[58vh] overflow-y-auto pr-1">
+          <SheetContent title={title} transactions={transactions} />
+        </div>
         <button onClick={onClose} className="mt-5 h-12 w-full rounded-[16px] bg-[#6D35F5] text-[15px] font-extrabold text-white">Done</button>
       </section>
     </div>
   );
+}
+
+function SheetContent({ title, transactions }: { title: string; transactions: Transaction[] }) {
+  const categories = getAllCategoryRows(transactions);
+  const merchants = getAllMerchantRows(transactions);
+  const summary = getSummary(transactions);
+  const selectedCategory = categories.find((row) => categoryTitleMatches(title, row.label));
+  const selectedMerchant = merchants.find((row) => title.toLowerCase().includes(row.merchant.toLowerCase()));
+  const lowConfidence = transactions.filter((row) => row.needsReview || row.confidence < 0.75).length;
+  const groceries = categories.find((row) => row.label === "Groceries");
+  const orderingOut = categories.find((row) => row.label === "Ordering Out" || row.label === "Dining Out");
+
+  if (!transactions.length) {
+    return (
+      <div className="rounded-[18px] bg-[#F8FAFC] p-4 text-[13px] font-semibold leading-relaxed text-[#64748B]">
+        Upload a statement first. This panel will then show real merchant, category, filter, and recommendation data from your transactions.
+      </div>
+    );
+  }
+
+  if (title === "All categories") {
+    return (
+      <div className="space-y-2.5">
+        {categories.map((row) => (
+          <CategorySheetRow key={row.label} row={row} />
+        ))}
+      </div>
+    );
+  }
+
+  if (title === "Merchant insights") {
+    return (
+      <div className="divide-y divide-[#EEF2F7]">
+        {merchants.slice(0, 12).map((row) => (
+          <MerchantSheetRow key={row.merchant} row={row} />
+        ))}
+      </div>
+    );
+  }
+
+  if (selectedCategory) {
+    const rows = transactions.filter((row) => normalizeCategoryLabel(row.category) === selectedCategory.label && row.direction === "expense").slice(0, 8);
+    return (
+      <div>
+        <div className="grid grid-cols-2 gap-2">
+          <MiniMetric label="Spent" value={`QAR ${formatAmount(selectedCategory.amount)}`} tone="red" />
+          <MiniMetric label="Share" value={`${selectedCategory.percent}%`} />
+        </div>
+        <div className="mt-3 divide-y divide-[#EEF2F7]">
+          {rows.map((row) => (
+            <CompactTransactionRow key={row.id} row={row} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (selectedMerchant || title.endsWith(" details")) {
+    const merchantName = selectedMerchant?.merchant ?? title.replace(/\s+details$/i, "").replace(/\s+insight$/i, "");
+    const rows = transactions.filter((row) => row.merchant.toLowerCase().includes(merchantName.toLowerCase())).slice(0, 8);
+    const total = rows.reduce((sum, row) => sum + row.amount, 0);
+    return (
+      <div>
+        <div className="flex items-center gap-3 rounded-[18px] bg-[#F8FAFC] p-3">
+          <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full bg-violet-50 text-[16px] font-extrabold text-[#6D35F5]">
+            <MerchantLogo merchant={merchantName} fallback={merchantName.slice(0, 1)} />
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-[15px] font-extrabold text-[#0F172A]">{merchantName}</p>
+            <p className="text-[13px] font-semibold text-[#64748B]">QAR {formatAmount(total)} across {rows.length} transactions</p>
+          </div>
+        </div>
+        <div className="mt-3 divide-y divide-[#EEF2F7]">
+          {rows.map((row) => (
+            <CompactTransactionRow key={row.id} row={row} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (title === "Savings opportunity") {
+    const flexibleSpend = (orderingOut?.amount ?? 0) + (categories.find((row) => row.label === "Shopping")?.amount ?? 0) + (categories.find((row) => row.label === "Subscriptions")?.amount ?? 0);
+    const saving = Math.max(0, flexibleSpend * 0.12);
+    return (
+      <div className="rounded-[20px] bg-emerald-50 p-4 ring-1 ring-emerald-100">
+        <p className="text-[13px] font-semibold text-emerald-700">Estimated monthly opportunity</p>
+        <p className="mt-1 text-[30px] font-extrabold tracking-[-0.04em] text-emerald-600">QAR {formatAmount(saving)}</p>
+        <p className="mt-2 text-[13px] font-medium leading-relaxed text-[#475569]">Based on ordering out, shopping, and subscriptions. Reduce the highest flexible categories by 10-15% to unlock this saving.</p>
+      </div>
+    );
+  }
+
+  if (title === "Set a Grocery Budget") {
+    const current = groceries?.amount ?? 0;
+    const suggested = current ? current * 0.9 : summary.expenses * 0.25;
+    return (
+      <div className="space-y-3">
+        <MiniMetric label="Current grocery spend" value={`QAR ${formatAmount(current)}`} />
+        <MiniMetric label="Suggested monthly budget" value={`QAR ${formatAmount(suggested)}`} tone="green" />
+        <p className="rounded-[16px] bg-[#F8FAFC] p-3 text-[13px] font-medium leading-relaxed text-[#64748B]">Budget saving is calculated from your imported grocery transactions. Manual editable budgets can be added next as persistent settings.</p>
+      </div>
+    );
+  }
+
+  if (title === "Reduce Food Delivery") {
+    const amount = orderingOut?.amount ?? 0;
+    return <RecommendationDetail amount={amount} saving={amount * 0.14} text="Try replacing two delivery orders per week with planned meals. FinWise will track Ordering Out after each upload." />;
+  }
+
+  if (title === "Review Subscriptions") {
+    const amount = categories.find((row) => row.label === "Subscriptions")?.amount ?? 0;
+    return <RecommendationDetail amount={amount} saving={amount * 0.2} text="Review recurring merchants and cancel unused subscriptions. Subscription rows are detected from merchant rules and transaction wording." />;
+  }
+
+  if (title === "AI insight details") {
+    const top = categories[0];
+    return (
+      <div className="space-y-3">
+        <MiniMetric label="Top category" value={top ? top.label : "None"} />
+        <MiniMetric label="Needs review" value={lowConfidence.toString()} tone={lowConfidence ? "red" : "green"} />
+        <p className="rounded-[16px] bg-violet-50 p-3 text-[13px] font-medium leading-relaxed text-[#5B21B6]">The categorizer uses saved merchant rules first, default rules second, then fallback inference. Correcting a category saves a merchant rule for future uploads.</p>
+      </div>
+    );
+  }
+
+  if (["Insight period", "Date Range", "Statement", "Account", "Sort: Newest", "Statement selector", "More transactions"].includes(title)) {
+    return (
+      <div className="space-y-2">
+        <FieldPreview label="Transactions" value={transactions.length.toLocaleString("en-US")} />
+        <FieldPreview label="Date range" value={getDateRange(transactions)} />
+        <FieldPreview label="Total spent" value={`QAR ${formatAmount(summary.expenses)}`} />
+        <p className="rounded-[16px] bg-[#F8FAFC] p-3 text-[13px] font-medium leading-relaxed text-[#64748B]">Current controls are connected to the imported dataset. Persistent saved filter presets can be added once account-level storage is introduced.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <FieldPreview label="Imported transactions" value={transactions.length.toLocaleString("en-US")} />
+      <FieldPreview label="Income" value={`QAR ${formatAmount(summary.income)}`} />
+      <FieldPreview label="Expenses" value={`QAR ${formatAmount(summary.expenses)}`} />
+    </div>
+  );
+}
+
+function CategorySheetRow({ row }: { row: SpendingRow }) {
+  return (
+    <div className="grid min-h-[42px] grid-cols-[minmax(0,1fr)_90px_44px] items-center gap-2 rounded-[14px] bg-[#F8FAFC] px-3">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: row.color }} />
+        <span className="truncate text-[13px] font-bold text-[#0F172A]">{row.label}</span>
+      </div>
+      <span className="justify-self-end whitespace-nowrap text-[12.5px] font-semibold text-[#334155]">QAR {formatAmount(row.amount)}</span>
+      <span className="justify-self-end text-[12.5px] font-bold text-[#64748B]">{row.percent}%</span>
+    </div>
+  );
+}
+
+function MerchantSheetRow({ row }: { row: { merchant: string; amount: number; count: number; change?: string; up?: boolean; color?: string } }) {
+  return (
+    <div className="flex items-center gap-3 py-2.5">
+      <span className={`grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full text-[14px] font-extrabold ${row.color ?? "bg-violet-50 text-violet-600"}`}>
+        <MerchantLogo merchant={row.merchant} fallback={row.merchant.slice(0, 1)} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[13.5px] font-extrabold text-[#0F172A]">{row.merchant}</p>
+        <p className="text-[12px] font-medium text-[#64748B]">{row.count} transactions</p>
+      </div>
+      <div className="text-right">
+        <p className="whitespace-nowrap text-[12.5px] font-bold text-[#334155]">QAR {formatAmount(row.amount)}</p>
+        {row.change ? <p className={row.up ? "text-[12px] font-bold text-red-500" : "text-[12px] font-bold text-emerald-500"}>{row.up ? "Up" : "Down"} {row.change.replace("+", "").replace("-", "")}</p> : null}
+      </div>
+    </div>
+  );
+}
+
+function CompactTransactionRow({ row }: { row: Transaction }) {
+  return (
+    <div className="flex items-center gap-3 py-2.5">
+      <span className={`grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full text-[13px] font-extrabold ${categoryAvatarStyles[row.category] ?? categoryAvatarStyles.Other}`}>
+        <MerchantLogo merchant={row.merchant} fallback={row.merchant.slice(0, 1)} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[13px] font-bold text-[#0F172A]">{row.merchant}</p>
+        <p className="text-[11.5px] font-medium text-[#64748B]">{row.date} · {row.category}</p>
+      </div>
+      <p className={row.direction === "income" ? "whitespace-nowrap text-[12.5px] font-extrabold text-emerald-500" : "whitespace-nowrap text-[12.5px] font-extrabold text-red-500"}>{row.direction === "income" ? "+" : "-"}QAR {formatAmount(row.amount)}</p>
+    </div>
+  );
+}
+
+function RecommendationDetail({ amount, saving, text }: { amount: number; saving: number; text: string }) {
+  return (
+    <div className="space-y-3">
+      <MiniMetric label="Current spend" value={`QAR ${formatAmount(amount)}`} />
+      <MiniMetric label="Potential saving" value={`QAR ${formatAmount(Math.max(0, saving))}`} tone="green" />
+      <p className="rounded-[16px] bg-[#F8FAFC] p-3 text-[13px] font-medium leading-relaxed text-[#64748B]">{text}</p>
+    </div>
+  );
+}
+
+function MerchantLogo({ merchant, fallback }: { merchant: string; fallback: string }) {
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    const url = getMerchantLogoUrl(merchant);
+    setLogoUrl(url);
+    setFailed(false);
+  }, [merchant]);
+
+  if (!logoUrl || failed) return <span>{fallback}</span>;
+
+  return <img src={logoUrl} alt="" className="h-full w-full rounded-full object-cover" loading="lazy" onError={() => setFailed(true)} />;
 }
 
 function MiniMetric({ label, value, tone = "slate" }: { label: string; value: string; tone?: "slate" | "red" | "green" }) {
@@ -999,6 +1239,25 @@ function getInsightCategories(transactions: Transaction[]) {
   return rows.map((row) => ({ ...row, label: row.label === "Dining Out" ? "Ordering Out" : row.label }));
 }
 
+function getAllCategoryRows(transactions: Transaction[]) {
+  const rows = transactions.filter((row) => row.direction === "expense");
+  const totals = new Map<string, number>();
+  rows.forEach((row) => {
+    const label = normalizeCategoryLabel(row.category);
+    totals.set(label, (totals.get(label) ?? 0) + row.amount);
+  });
+  const total = Array.from(totals.values()).reduce((sum, amount) => sum + amount, 0);
+
+  return Array.from(totals.entries())
+    .map(([label, amount]) => ({
+      label,
+      amount,
+      percent: total ? Number(((amount / total) * 100).toFixed(1)) : 0,
+      color: categoryColors[label] ?? categoryColors.Other
+    }))
+    .sort((left, right) => right.amount - left.amount);
+}
+
 function getMerchantInsights(transactions: Transaction[]) {
   const totals = new Map<string, number>();
   transactions.filter((row) => row.direction === "expense").forEach((row) => {
@@ -1008,9 +1267,24 @@ function getMerchantInsights(transactions: Transaction[]) {
   const rows = Array.from(totals.entries())
     .sort((left, right) => right[1] - left[1])
     .slice(0, 4)
-    .map(([merchant, amount]) => ({ merchant: toTitle(merchant), amount, change: "+0%", up: true, color: "bg-violet-50 text-violet-600" }));
+    .map(([merchant, amount]) => ({ merchant: toTitle(merchant), amount, count: transactions.filter((row) => row.merchant === merchant).length, change: "+0%", up: true, color: "bg-violet-50 text-violet-600" }));
 
   return rows.length ? rows : merchantInsights;
+}
+
+function getAllMerchantRows(transactions: Transaction[]) {
+  const totals = new Map<string, { amount: number; count: number }>();
+  transactions.filter((row) => row.direction === "expense").forEach((row) => {
+    const merchant = toTitle(row.merchant);
+    const current = totals.get(merchant) ?? { amount: 0, count: 0 };
+    totals.set(merchant, { amount: current.amount + row.amount, count: current.count + 1 });
+  });
+
+  const rows = Array.from(totals.entries())
+    .map(([merchant, value]) => ({ merchant, amount: value.amount, count: value.count, change: "+0%", up: true, color: "bg-violet-50 text-violet-600" }))
+    .sort((left, right) => right.amount - left.amount);
+
+  return rows.length ? rows : merchantInsights.map((row) => ({ ...row, count: 1 }));
 }
 
 function buildTrendRows(transactions: Transaction[]) {
@@ -1071,6 +1345,25 @@ function formatMonthRange(transactions: Transaction[]) {
   if (!transactions.length) return "No statements yet";
   const sorted = [...transactions].sort((left, right) => left.date.localeCompare(right.date));
   return `${getMonthLabel(sorted[0].date)} - ${getMonthLabel(sorted[sorted.length - 1].date)}`;
+}
+
+function getDateRange(transactions: Transaction[]) {
+  if (!transactions.length) return "No transactions";
+  const sorted = [...transactions].sort((left, right) => left.date.localeCompare(right.date));
+  return `${sorted[0].date} to ${sorted[sorted.length - 1].date}`;
+}
+
+function normalizeCategoryLabel(category: string) {
+  return category === "Ordering Out" ? "Dining Out" : category;
+}
+
+function categoryTitleMatches(title: string, label: string) {
+  const normalizedTitle = title.toLowerCase();
+  const normalizedLabel = label.toLowerCase();
+  if (normalizedTitle.includes(normalizedLabel)) return true;
+  if (label === "Dining Out" && normalizedTitle.includes("ordering out")) return true;
+  if (label === "Ordering Out" && normalizedTitle.includes("dining out")) return true;
+  return false;
 }
 
 function formatPeriodDates(period: StatementPeriodInfo) {
@@ -1145,6 +1438,29 @@ function formatCompact(value: number) {
 
 function toTitle(value: string) {
   return value.toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function getMerchantLogoUrl(merchant: string) {
+  const normalized = merchant.toLowerCase();
+  const key = `finwise.logo.${normalized.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
+
+  try {
+    const cached = window.localStorage.getItem(key);
+    if (cached) return cached;
+  } catch {
+    // Ignore storage failures; logo fallback still works.
+  }
+
+  const match = merchantLogoDomains.find((item) => item.keywords.some((keyword) => normalized.includes(keyword)));
+  if (!match) return null;
+
+  const url = `https://www.google.com/s2/favicons?domain=${match.domain}&sz=96`;
+  try {
+    window.localStorage.setItem(key, url);
+  } catch {
+    // Ignore storage failures; image can still load for this session.
+  }
+  return url;
 }
 
 function makeConicGradient(rows: SpendingRow[]) {
