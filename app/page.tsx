@@ -1,0 +1,1144 @@
+"use client";
+
+import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from "react";
+import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, Tooltip, XAxis, YAxis } from "recharts";
+import { categories } from "@/lib/categorization";
+import { demoTransactions } from "@/lib/demo-data";
+import type { Transaction } from "@/lib/types";
+
+type ActiveView = "home" | "transactions" | "upload" | "insights" | "settings" | "statements";
+type SpendingPeriod = "This Month" | "Last Month" | "Year";
+
+type SpendingRow = {
+  label: string;
+  amount: number;
+  percent: number;
+  color: string;
+};
+
+type StatementPeriodInfo = {
+  startDate: string | null;
+  endDate: string | null;
+  days: number;
+  label: string;
+};
+
+const spendingByPeriod: Record<SpendingPeriod, SpendingRow[]> = {
+  "This Month": [
+    { label: "Groceries", amount: 2420.5, percent: 28.6, color: "#22C55E" },
+    { label: "Dining Out", amount: 1850.75, percent: 21.9, color: "#F97316" },
+    { label: "Shopping", amount: 1560.3, percent: 18.5, color: "#3B82F6" },
+    { label: "Transport", amount: 1230.4, percent: 14.6, color: "#06B6D4" },
+    { label: "Bills", amount: 1391.3, percent: 16.4, color: "#7C3AED" }
+  ],
+  "Last Month": [
+    { label: "Groceries", amount: 2190.25, percent: 30.4, color: "#22C55E" },
+    { label: "Dining Out", amount: 1420.1, percent: 19.7, color: "#F97316" },
+    { label: "Shopping", amount: 1205.65, percent: 16.7, color: "#3B82F6" },
+    { label: "Transport", amount: 980.2, percent: 13.6, color: "#06B6D4" },
+    { label: "Bills", amount: 1412.45, percent: 19.6, color: "#7C3AED" }
+  ],
+  Year: [
+    { label: "Groceries", amount: 14220.5, percent: 27.2, color: "#22C55E" },
+    { label: "Dining Out", amount: 10940.75, percent: 20.9, color: "#F97316" },
+    { label: "Shopping", amount: 9650.3, percent: 18.5, color: "#3B82F6" },
+    { label: "Transport", amount: 7820.4, percent: 15, color: "#06B6D4" },
+    { label: "Bills", amount: 9625.8, percent: 18.4, color: "#7C3AED" }
+  ]
+};
+
+const periods: SpendingPeriod[] = ["This Month", "Last Month", "Year"];
+
+const categoryColors: Record<string, string> = {
+  Groceries: "#22C55E",
+  "Ordering Out": "#F97316",
+  "Restaurants & Cafes": "#FB923C",
+  Transport: "#06B6D4",
+  Fuel: "#F59E0B",
+  Shopping: "#3B82F6",
+  Malls: "#7C3AED",
+  Bills: "#8B5CF6",
+  Subscriptions: "#D946EF",
+  Rent: "#64748B",
+  Health: "#14B8A6",
+  Entertainment: "#0EA5E9",
+  "Cash Withdrawal": "#94A3B8",
+  "Bank Transfer": "#64748B",
+  "Salary / Income": "#10B981",
+  Other: "#CBD5E1"
+};
+
+const categoryAvatarStyles: Record<string, string> = {
+  Groceries: "bg-emerald-50 text-emerald-600",
+  "Ordering Out": "bg-orange-500 text-white",
+  "Restaurants & Cafes": "bg-orange-50 text-orange-600",
+  Transport: "bg-cyan-50 text-cyan-600",
+  Fuel: "bg-amber-50 text-amber-600",
+  Shopping: "bg-blue-50 text-blue-600",
+  Malls: "bg-violet-50 text-violet-600",
+  Bills: "bg-purple-50 text-purple-600",
+  Subscriptions: "bg-fuchsia-50 text-fuchsia-600",
+  Rent: "bg-slate-100 text-slate-600",
+  Health: "bg-teal-50 text-teal-600",
+  Entertainment: "bg-sky-50 text-sky-600",
+  "Cash Withdrawal": "bg-slate-100 text-slate-600",
+  "Bank Transfer": "bg-slate-100 text-slate-600",
+  "Salary / Income": "bg-emerald-50 text-emerald-600",
+  Other: "bg-slate-100 text-slate-600"
+};
+
+const monthlyGroups = [
+  {
+    month: "June 2026",
+    count: 42,
+    rows: [
+      { merchant: "Carrefour City Center Doha", detail: "Groceries and household items", category: "Groceries", amount: 156.75, direction: "expense", account: "QNB Visa •••• 2456", logo: "C", color: "bg-blue-50 text-blue-600" },
+      { merchant: "Talabat Food Delivery", detail: "Lunch order", category: "Dining Out", amount: 42.5, direction: "expense", account: "QNB Visa •••• 2456", logo: "t", color: "bg-orange-500 text-white" },
+      { merchant: "Salary Credit", detail: "June 2026 Salary", category: "Income", amount: 7500, direction: "income", account: "QNB Salary •••• 9999", logo: "S", color: "bg-emerald-50 text-emerald-500" }
+    ]
+  },
+  {
+    month: "May 2026",
+    count: 38,
+    rows: [
+      { merchant: "Uber Ride", detail: "Ride to West Bay", category: "Transport", amount: 28, direction: "expense", account: "QNB Visa •••• 2456", logo: "U", color: "bg-slate-900 text-white" },
+      { merchant: "Netflix Subscription", detail: "Premium Plan", category: "Subscriptions", amount: 42, direction: "expense", account: "QNB Visa •••• 2456", logo: "N", color: "bg-red-50 text-red-600" }
+    ]
+  },
+  {
+    month: "April 2026",
+    count: 35,
+    rows: [
+      { merchant: "Apple Services", detail: "iCloud+ 200GB", category: "Subscriptions", amount: 13.99, direction: "expense", account: "QNB Visa •••• 2456", logo: "A", color: "bg-slate-100 text-slate-600" }
+    ]
+  }
+];
+
+const insightCategories = [
+  { label: "Groceries", amount: 1927.4, percent: 22.8, color: "#6D35F5" },
+  { label: "Ordering Out", amount: 1783.6, percent: 21.1, color: "#F97316" },
+  { label: "Shopping", amount: 1378.75, percent: 16.3, color: "#94A3B8" },
+  { label: "Transport", amount: 1073.6, percent: 12.7, color: "#22C55E" },
+  { label: "Bills & Utilities", amount: 972.3, percent: 11.5, color: "#06B6D4" },
+  { label: "Entertainment", amount: 608.6, percent: 7.2, color: "#0EA5E9" },
+  { label: "Others", amount: 709, percent: 8.4, color: "#CBD5E1" }
+];
+
+const merchantInsights = [
+  { merchant: "Carrefour", amount: 1245.5, change: "+35%", up: true, color: "bg-blue-50 text-blue-600" },
+  { merchant: "Talabat", amount: 1102.3, change: "+32%", up: true, color: "bg-orange-500 text-white" },
+  { merchant: "Lulu Hypermarket", amount: 897.45, change: "-5%", up: false, color: "bg-emerald-50 text-emerald-600" },
+  { merchant: "Uber", amount: 542.2, change: "+12%", up: true, color: "bg-slate-900 text-white" }
+];
+
+const trendRows = [
+  { date: "Jun 1", amount: 900 },
+  { date: "Jun 8", amount: 3400 },
+  { date: "Jun 15", amount: 6100 },
+  { date: "Jun 22", amount: 7600 },
+  { date: "Jun 30", amount: 9450 }
+];
+
+export default function FinWiseApp() {
+  const [activeView, setActiveView] = useState<ActiveView>("home");
+  const [transactions, setTransactions] = useState<Transaction[]>(demoTransactions);
+  const [uploadStatus, setUploadStatus] = useState(`${demoTransactions.length} transactions`);
+  const [latestPeriod, setLatestPeriod] = useState<StatementPeriodInfo | null>(null);
+  const transactionCount = transactions.length;
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("finwise.transactions");
+    if (!saved) return;
+    try {
+      const parsed = JSON.parse(saved) as Transaction[];
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        setTransactions(dedupe(parsed));
+        setUploadStatus(`${parsed.length} transactions`);
+      }
+      const savedPeriod = window.localStorage.getItem("finwise.latestPeriod");
+      if (savedPeriod) setLatestPeriod(JSON.parse(savedPeriod) as StatementPeriodInfo);
+    } catch {
+      window.localStorage.removeItem("finwise.transactions");
+      window.localStorage.removeItem("finwise.latestPeriod");
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("finwise.transactions", JSON.stringify(transactions));
+  }, [transactions]);
+
+  async function uploadStatement(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("bank", "QNB");
+    formData.append("keepOriginal", "false");
+    formData.append("rules", window.localStorage.getItem("finwise.merchantRules") ?? "[]");
+    setUploadStatus("Uploading and categorizing...");
+
+    let response: Response;
+    let payload: { error?: string; transactions?: Transaction[]; statement?: { period?: StatementPeriodInfo } };
+    try {
+      response = await fetch("/api/statements", { method: "POST", body: formData });
+      payload = await response.json();
+    } catch {
+      setUploadStatus("Upload failed. Please try again with a CSV export.");
+      return;
+    }
+
+    if (!response.ok) {
+      setUploadStatus(payload.error ?? "Upload failed");
+      return;
+    }
+
+    const imported = payload.transactions ?? [];
+    setTransactions((current) => (isDemoDataset(current) ? imported : dedupe([...imported, ...current])));
+    setUploadStatus(`${imported.length} transactions`);
+    if (payload.statement?.period) {
+      setLatestPeriod(payload.statement.period);
+      window.localStorage.setItem("finwise.latestPeriod", JSON.stringify(payload.statement.period));
+    }
+    setActiveView("transactions");
+  }
+
+  return (
+    <main className="min-h-screen bg-[#F8FAFC] text-[#111827]">
+      <div className="mx-auto flex min-h-screen w-full max-w-[440px] flex-col bg-[#FAFBFF] px-4 pb-[calc(108px+env(safe-area-inset-bottom))] pt-[calc(14px+env(safe-area-inset-top))] min-[391px]:px-[18px] sm:my-5 sm:rounded-[34px] sm:border sm:border-white sm:shadow-2xl sm:shadow-slate-300/50">
+        {activeView === "home" ? (
+          <HomeDashboard transactions={transactions} latestPeriod={latestPeriod} uploadStatus={uploadStatus} transactionCount={transactionCount} onUpload={uploadStatement} setActiveView={setActiveView} />
+        ) : null}
+        {activeView === "transactions" ? <TransactionsPage transactions={transactions} setTransactions={setTransactions} setActiveView={setActiveView} /> : null}
+        {activeView === "upload" ? <UploadPage latestPeriod={latestPeriod} uploadStatus={uploadStatus} onUpload={uploadStatement} /> : null}
+        {activeView === "insights" ? <InsightsPage transactions={transactions} /> : null}
+        {activeView === "settings" ? <SettingsPage setActiveView={setActiveView} /> : null}
+        {activeView === "statements" ? <StatementsPage transactions={transactions} latestPeriod={latestPeriod} setActiveView={setActiveView} /> : null}
+      </div>
+      <BottomNavigation activeView={activeView} setActiveView={setActiveView} />
+    </main>
+  );
+}
+
+function HomeDashboard({ transactions, latestPeriod, uploadStatus, transactionCount, onUpload, setActiveView }: { transactions: Transaction[]; latestPeriod: StatementPeriodInfo | null; uploadStatus: string; transactionCount: number; onUpload: (event: ChangeEvent<HTMLInputElement>) => void; setActiveView: (view: ActiveView) => void }) {
+  const summary = useMemo(() => getSummary(transactions), [transactions]);
+
+  return (
+    <>
+      <HomeHeader />
+      <TotalBalanceCard balance={summary.balance} />
+      <SummaryCards summary={summary} />
+      <LatestStatementCard latestPeriod={latestPeriod} uploadStatus={uploadStatus} transactionCount={transactionCount} onUpload={onUpload} onOpen={() => setActiveView("statements")} />
+      <SpendingOverviewCard transactions={transactions} onOpenCategories={() => setActiveView("insights")} />
+      <TransactionsShortcut onOpen={() => setActiveView("transactions")} />
+    </>
+  );
+}
+
+function HomeHeader() {
+  return (
+    <header className="mb-[18px] flex items-start justify-between gap-3 pt-1">
+      <div className="min-w-0">
+        <h1 className="text-[clamp(26px,7vw,30px)] font-extrabold leading-tight tracking-[-0.035em] text-[#11152D]">Good morning, Siraj</h1>
+        <p className="mt-1 text-[clamp(16px,4vw,17px)] font-medium leading-tight text-[#64708A]">Here&apos;s your financial overview</p>
+      </div>
+      <button aria-label="Notifications" className="relative grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white text-[#11152D] shadow-sm ring-1 ring-[rgba(15,23,42,0.06)]">
+        <BellIcon />
+        <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-[#6D3EF3] ring-2 ring-white" />
+      </button>
+    </header>
+  );
+}
+
+function TotalBalanceCard({ balance }: { balance: number }) {
+  const [visible, setVisible] = useState(true);
+
+  return (
+    <section className="relative h-[150px] overflow-hidden rounded-[24px] bg-gradient-to-br from-[#4F46E5] via-[#633EF2] to-[#7C3AED] px-[18px] py-[22px] text-white shadow-[0_18px_38px_rgba(99,62,242,0.23)] min-[391px]:h-[158px] min-[391px]:px-6">
+      <div className="pointer-events-none absolute -bottom-20 left-20 h-48 w-80 rounded-[50%] bg-white/10" />
+      <div className="relative flex h-full justify-between gap-4">
+        <div className="min-w-0">
+          <button onClick={() => setVisible((current) => !current)} className="flex items-center gap-2 text-[15px] font-bold text-white/90" aria-label="Hide or show total balance">
+            Total Balance
+            <EyeIcon />
+          </button>
+          <p className="mt-5 whitespace-nowrap text-[clamp(29px,7.5vw,42px)] font-extrabold leading-none tracking-[-0.055em]">{visible ? `QAR ${formatAmount(balance)}` : "QAR *******"}</p>
+          <p className="mt-4 text-[14px] font-semibold text-white/85">As of July 1, 2026</p>
+        </div>
+        <div className="grid h-14 w-14 shrink-0 place-items-center rounded-[17px] bg-white/15 backdrop-blur min-[391px]:h-16 min-[391px]:w-16">
+          <TrendIcon />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SummaryCards({ summary }: { summary: ReturnType<typeof getSummary> }) {
+  return (
+    <section className="mt-3.5 grid grid-cols-3 gap-1.5">
+      <SummaryCard icon={<ArrowDownIcon />} tone="green" title="Total Income" value={`QAR ${formatAmount(summary.income)}`} />
+      <SummaryCard icon={<ArrowUpIcon />} tone="red" title="Total Expenses" value={`QAR ${formatAmount(summary.expenses)}`} />
+      <SummaryCard icon={<WalletIcon />} tone="purple" title="Net Savings" value={`QAR ${formatAmount(summary.net)}`} />
+    </section>
+  );
+}
+
+function SummaryCard({ icon, tone, title, value }: { icon: ReactNode; tone: "green" | "red" | "purple"; title: string; value: string }) {
+  const toneStyles = {
+    green: { icon: "bg-emerald-50 text-emerald-500", label: "text-emerald-500" },
+    red: { icon: "bg-rose-50 text-rose-500", label: "text-rose-500" },
+    purple: { icon: "bg-violet-50 text-violet-600", label: "text-violet-600" }
+  }[tone];
+
+  return (
+    <article className="flex h-[108px] min-w-0 flex-col overflow-hidden rounded-[19px] bg-white px-0.5 pb-1 pt-2.5 shadow-[0_8px_18px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)] min-[391px]:h-[112px] min-[391px]:rounded-[20px] min-[391px]:px-1">
+      <div className={`grid h-[38px] w-[38px] place-items-center rounded-full [&_svg]:h-5 [&_svg]:w-5 min-[391px]:h-10 min-[391px]:w-10 ${toneStyles.icon}`}>{icon}</div>
+      <h3 className="mt-1.5 whitespace-nowrap text-[11.25px] font-semibold leading-none tracking-[-0.012em] text-[#475569] min-[391px]:mt-2 min-[391px]:text-[12px]">{title}</h3>
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto] pt-1">
+        <p className="self-center whitespace-nowrap text-[12.85px] font-extrabold leading-none tracking-[-0.068em] text-[#0F172A] min-[375px]:text-[13.85px] min-[391px]:text-[15.18px] min-[430px]:text-[15.42px]">{value}</p>
+        <p className={`text-[10.5px] font-bold leading-none min-[391px]:text-[11.4px] ${toneStyles.label}`}>This Month</p>
+      </div>
+    </article>
+  );
+}
+
+function LatestStatementCard({ latestPeriod, uploadStatus, transactionCount, onUpload, onOpen }: { latestPeriod: StatementPeriodInfo | null; uploadStatus: string; transactionCount: number; onUpload: (event: ChangeEvent<HTMLInputElement>) => void; onOpen: () => void }) {
+  const statusText = (uploadStatus === "42 transactions imported" ? `${transactionCount} transactions` : uploadStatus).replace(/\s+imported$/i, "");
+  const periodText = latestPeriod?.startDate && latestPeriod.endDate ? `${latestPeriod.startDate} to ${latestPeriod.endDate}` : "Latest statement";
+
+  return (
+    <section className="mt-3.5 rounded-[22px] bg-white px-4 py-3.5 shadow-[0_10px_24px_rgba(15,23,42,0.045)] ring-1 ring-[rgba(15,23,42,0.055)] min-[391px]:px-[18px]">
+      <div className="flex min-h-[64px] items-center gap-3">
+        <label className="relative grid h-14 w-14 shrink-0 cursor-pointer place-items-center rounded-full bg-gradient-to-br from-[#7C3AED] to-[#C4B5FD] text-white min-[391px]:h-[58px] min-[391px]:w-[58px]" aria-label="Upload a statement">
+          <StatementIcon />
+          <span className="absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full bg-[#22C55E] text-white ring-2 ring-white">
+            <CheckIcon />
+          </span>
+          <input type="file" accept=".csv,.pdf,.xls,.xlsx,.txt" onChange={onUpload} className="sr-only" />
+        </label>
+        <button onClick={onOpen} className="min-w-0 flex-1 text-left">
+          <h2 className="text-[16px] font-extrabold leading-tight tracking-[-0.02em] min-[391px]:text-[17px]">Latest Statement</h2>
+          <p className="mt-0.5 truncate text-[13px] font-medium leading-tight text-[#64708A]">{periodText}</p>
+          <p className="truncate text-[14px] font-medium leading-tight text-[#64708A]">{statusText}</p>
+        </button>
+        <span className="inline-flex h-9 items-center rounded-full bg-emerald-50 px-3.5 text-[12px] font-bold text-emerald-600 min-[391px]:px-4">Processed</span>
+        <button onClick={onOpen} aria-label="Open statement details" className="text-[#536180]"><ChevronIcon /></button>
+      </div>
+    </section>
+  );
+}
+
+function SpendingOverviewCard({ transactions, onOpenCategories }: { transactions: Transaction[]; onOpenCategories: () => void }) {
+  const [period, setPeriod] = useState<SpendingPeriod>("This Month");
+  const rows = useMemo(() => getSpendingRows(transactions, period), [transactions, period]);
+  const total = rows.reduce((sum, row) => sum + row.amount, 0);
+
+  return (
+    <section className="mt-3.5 rounded-[23px] bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.045)] ring-1 ring-[rgba(15,23,42,0.055)] min-[391px]:p-[18px]">
+      <div>
+        <h2 className="text-[21px] font-extrabold leading-[1.15] tracking-[-0.035em] text-[#111827] min-[391px]:text-[22px]">Spending Overview</h2>
+        <div className="mt-3 grid h-10 grid-cols-3 rounded-[15px] bg-[#F8FAFC] p-1 text-[12.5px] font-semibold text-[#64708A] ring-1 ring-[#E2E8F0] min-[391px]:text-[13.5px]">
+          {periods.map((item) => (
+            <button key={item} onClick={() => setPeriod(item)} className={item === period ? "rounded-[12px] bg-[#633EF2] px-2 text-white shadow-md shadow-[#633EF2]/25" : "rounded-[12px] px-2"}>
+              {item}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-4 flex justify-center">
+        <div className="relative h-[172px] w-[172px] min-[391px]:h-[184px] min-[391px]:w-[184px]">
+          <PieChart width={184} height={184} className="h-full w-full max-w-full" tabIndex={-1} accessibilityLayer={false}>
+            <Pie data={rows} dataKey="amount" nameKey="label" innerRadius={62} outerRadius={82} paddingAngle={2} stroke="#FFFFFF" strokeWidth={3} isAnimationActive={false}>
+              {rows.map((row) => (
+                <Cell key={row.label} fill={row.color} />
+              ))}
+            </Pie>
+          </PieChart>
+          <div className="pointer-events-none absolute inset-0 grid place-items-center text-center">
+            <div className="flex flex-col items-center justify-center">
+              <span className="text-[12px] font-medium leading-none text-[#7B8498] min-[391px]:text-[13px]">Total Spent</span>
+              <strong className="mt-2 whitespace-nowrap text-[15px] font-extrabold leading-none text-[#111827] min-[391px]:text-[16px]">QAR {formatAmount(total)}</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 space-y-1.5">
+        {rows.map((row) => (
+          <div key={row.label} className="grid min-h-[30px] grid-cols-[minmax(112px,1fr)_minmax(116px,132px)_46px] items-center gap-x-2 text-[13.5px] min-[391px]:grid-cols-[minmax(130px,1fr)_minmax(126px,142px)_48px] min-[391px]:text-[14.5px]">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: row.color }} />
+              <span className="truncate font-semibold text-[#111827]">{row.label}</span>
+            </div>
+            <span className="justify-self-center whitespace-nowrap font-medium text-[#111827]">QAR {formatAmount(row.amount)}</span>
+            <span className="justify-self-end text-[13px] font-medium text-[#64708A] min-[391px]:text-[14px]">{row.percent}%</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3 border-t border-[#E8ECF3] pt-1.5">
+        <button onClick={onOpenCategories} className="flex h-10 w-full items-center justify-end gap-2 text-[14px] font-extrabold text-[#5A36ED] min-[391px]:text-[15px]">
+          View all categories
+          <ChevronIcon />
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function TransactionsShortcut({ onOpen }: { onOpen: () => void }) {
+  return (
+    <button onClick={onOpen} className="mt-4 flex min-h-[62px] items-center gap-3 rounded-[18px] bg-white px-4 py-3 text-left shadow-[0_10px_26px_rgba(15,23,42,0.045)] ring-1 ring-[rgba(15,23,42,0.06)]">
+      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-violet-50 text-[#633EF2]">
+        <ReceiptIcon />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-[14px] font-extrabold leading-tight tracking-[-0.02em] text-[#111827]">View all transactions</p>
+        <p className="mt-0.5 truncate text-[12px] font-medium leading-tight text-[#64708A]">Search and manage every imported transaction</p>
+      </div>
+      <ChevronIcon />
+    </button>
+  );
+}
+
+function TransactionsPage({ transactions, setTransactions, setActiveView }: { transactions: Transaction[]; setTransactions: (transactions: Transaction[] | ((current: Transaction[]) => Transaction[])) => void; setActiveView: (view: ActiveView) => void }) {
+  const [search, setSearch] = useState("");
+  const [activeChip, setActiveChip] = useState("All");
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({ "June 2026": true, "May 2026": true, "April 2026": true });
+  const [sheet, setSheet] = useState<string | null>(null);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const groups = useMemo(() => groupTransactionsByMonth(transactions), [transactions]);
+  const summary = useMemo(() => getSummary(transactions), [transactions]);
+
+  const filteredGroups = groups.map((group) => ({
+    ...group,
+    rows: group.rows.filter((row) => {
+      const haystack = `${row.merchant} ${row.descriptionRaw} ${row.category} ${row.bank}`.toLowerCase();
+      const matchesSearch = haystack.includes(search.toLowerCase());
+      const matchesChip =
+        activeChip === "All" ||
+        (activeChip === "Expenses" && row.direction === "expense") ||
+        (activeChip === "Income" && row.direction === "income") ||
+        (activeChip === "Transfers" && row.category === "Bank Transfer") ||
+        row.category === activeChip;
+      return matchesSearch && matchesChip;
+    })
+  })).filter((group) => group.rows.length > 0);
+
+  return (
+    <section>
+      <AppTopBar />
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-[30px] font-extrabold leading-none tracking-[-0.045em] text-[#0F172A] min-[391px]:text-[32px]">Transactions</h1>
+          <p className="mt-2 max-w-[330px] text-[13.5px] font-medium leading-snug text-[#64748B] min-[391px]:text-[14px]">Search and manage all imported transactions across every statement.</p>
+        </div>
+      </div>
+
+      <section className="rounded-[22px] bg-white p-3.5 shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)] min-[391px]:p-4">
+        <div className="flex items-center gap-3">
+          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-violet-50 text-[#6D35F5] min-[391px]:h-[52px] min-[391px]:w-[52px]"><StatementIcon /></div>
+          <button onClick={() => setSheet("Statement selector")} className="min-w-0 flex-1 text-left">
+            <div className="flex items-center gap-2">
+              <h2 className="text-[16px] font-extrabold tracking-[-0.02em] text-[#0F172A] min-[391px]:text-[17px]">All Statements</h2>
+              <span className="grid h-5 w-5 place-items-center rounded-full bg-emerald-50 text-emerald-500"><CheckIcon /></span>
+            </div>
+            <p className="mt-0.5 text-[13px] font-medium text-[#64748B]">{groups.length} statements processed</p>
+            <p className="mt-1 text-[12px] font-semibold text-[#475569]">{formatMonthRange(transactions)}</p>
+          </button>
+          <button onClick={() => setSheet("Statement selector")} className="hidden h-11 items-center gap-2 rounded-[15px] bg-white px-3 text-[13px] font-bold text-[#0F172A] shadow-sm ring-1 ring-[#E2E8F0] min-[390px]:flex">
+            All Statements
+            <ChevronDownIcon />
+          </button>
+        </div>
+      </section>
+
+      <div className="mt-4 flex h-[50px] items-center gap-3 rounded-[17px] bg-white px-4 shadow-[0_8px_22px_rgba(15,23,42,0.04)] ring-1 ring-[#E2E8F0]">
+        <SearchIcon />
+        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search merchant, category, account, or note" className="min-w-0 flex-1 bg-transparent text-[13.5px] font-medium text-[#0F172A] placeholder:text-[#64748B] focus:outline-none" />
+      </div>
+
+      <div className="-mx-4 mt-3 overflow-x-auto px-4 pb-1 scrollbar-thin">
+        <div className="flex min-w-max gap-2">
+          {["All", "Expenses", "Income", "Transfers", "Groceries", "Ordering Out"].map((chip) => (
+            <button key={chip} onClick={() => setActiveChip(chip)} className={chip === activeChip ? "h-10 rounded-[14px] bg-[#6D35F5] px-4 text-[13px] font-extrabold text-white shadow-lg shadow-[#6D35F5]/20" : "h-10 rounded-[14px] bg-white px-4 text-[13px] font-bold text-[#334155] shadow-sm ring-1 ring-[#E8ECF3]"}>
+              {chip}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="-mx-4 mt-3 overflow-x-auto px-4 pb-1 scrollbar-thin">
+        <div className="flex min-w-max gap-2">
+          {["Date Range", "Statement", "Account", "Sort: Newest"].map((filter) => (
+            <button key={filter} onClick={() => setSheet(filter)} className="flex h-10 items-center gap-2 rounded-[14px] bg-white px-3 text-[12.5px] font-bold text-[#334155] shadow-sm ring-1 ring-[#E8ECF3]">
+              <FilterIcon />
+              {filter}
+              <ChevronDownIcon />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-2.5">
+        <MetricCard label="Transactions" value={transactions.length.toLocaleString("en-US")} helper="All time" />
+        <MetricCard label="Total Spent" value={`QAR ${formatAmount(summary.expenses)}`} helper="All time" tone="red" />
+        <MetricCard label="Total Income" value={`QAR ${formatAmount(summary.income)}`} helper="All time" tone="green" />
+        <MetricCard label="Statements" value={groups.length.toString()} helper="Processed" tone="purple" />
+      </div>
+
+      <div className="mt-4 flex items-center justify-between px-1 text-[14px] font-extrabold text-[#5A36ED]">
+        <button onClick={() => setActiveView("statements")} className="flex items-center gap-2"><OpenIcon />Manage statements</button>
+        <button onClick={() => setActiveView("statements")} className="flex items-center gap-1">View all statements<ChevronIcon /></button>
+      </div>
+
+      <div className="mt-3 grid gap-4">
+        {filteredGroups.map((group) => (
+          <section key={group.month} className="overflow-hidden rounded-[22px] bg-white shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
+            <button onClick={() => setExpanded((current) => ({ ...current, [group.month]: !current[group.month] }))} className="flex w-full items-center justify-between px-4 py-3 text-left">
+              <h2 className="text-[18px] font-extrabold tracking-[-0.02em] text-[#0F172A]">{group.month}</h2>
+              <span className="flex items-center gap-2 text-[12px] font-bold text-[#64748B]">{group.count} transactions<ChevronUpIcon collapsed={!expanded[group.month]} /></span>
+            </button>
+            {expanded[group.month] ? (
+              <div className="divide-y divide-[#EEF2F7]">
+                {group.rows.map((row) => (
+                  <TransactionListRow key={row.id} row={row} onOpen={() => setSheet(`${row.merchant} details`)} onActions={() => setEditingTransaction(row)} />
+                ))}
+              </div>
+            ) : null}
+          </section>
+        ))}
+      </div>
+
+      <button onClick={() => setSheet("More transactions")} className="mt-4 h-12 w-full rounded-[16px] bg-white text-[14px] font-extrabold text-[#0F172A] shadow-[0_8px_22px_rgba(15,23,42,0.04)] ring-1 ring-[#E2E8F0]">Load more transactions</button>
+      <BottomSheet title={sheet} onClose={() => setSheet(null)} />
+      <CategoryCorrectionSheet
+        transaction={editingTransaction}
+        onClose={() => setEditingTransaction(null)}
+        onSave={(category) => {
+          if (!editingTransaction) return;
+          saveMerchantRule(editingTransaction, category);
+          setTransactions((current) =>
+            current.map((row) =>
+              row.id === editingTransaction.id
+                ? {
+                    ...row,
+                    category,
+                    subcategory: category,
+                    confidence: 1,
+                    needsReview: false,
+                    categorySource: "user_rule",
+                    reason: `Saved merchant rule for "${editingTransaction.merchant}".`
+                  }
+                : row
+            )
+          );
+          setEditingTransaction(null);
+        }}
+      />
+    </section>
+  );
+}
+
+function TransactionListRow({ row, onOpen, onActions }: { row: Transaction; onOpen: () => void; onActions: () => void }) {
+  const isIncome = row.direction === "income";
+  const avatarClass = categoryAvatarStyles[row.category] ?? categoryAvatarStyles.Other;
+  return (
+    <div className="grid min-h-[76px] grid-cols-[44px_minmax(0,1fr)_auto_18px] items-center gap-3 px-4 py-3">
+      <button onClick={onOpen} className={`grid h-11 w-11 shrink-0 place-items-center rounded-full text-[17px] font-extrabold ${avatarClass}`}>{row.merchant.slice(0, 1) || "T"}</button>
+      <button onClick={onOpen} className="min-w-0 text-left">
+        <p className="truncate text-[14.5px] font-bold tracking-[-0.01em] text-[#0F172A]">{row.merchant}</p>
+        <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11.5px] font-medium text-[#64748B]">
+          <span className="truncate">{row.date}</span>
+          <span className={row.direction === "income" ? "shrink-0 rounded-[8px] bg-emerald-50 px-1.5 py-0.5 text-[10.5px] font-bold text-emerald-600" : "shrink-0 rounded-[8px] bg-violet-50 px-1.5 py-0.5 text-[10.5px] font-bold text-[#6D35F5]"}>{row.category}</span>
+        </p>
+        <p className="mt-0.5 truncate text-[10.5px] font-medium text-[#94A3B8]">{row.bank} · {row.categorySource}{row.needsReview ? " · Needs review" : ""}</p>
+      </button>
+      <button onClick={onOpen} className="text-right">
+        <p className={isIncome ? "whitespace-nowrap text-[13.5px] font-extrabold text-emerald-500 min-[391px]:text-[14px]" : "whitespace-nowrap text-[13.5px] font-extrabold text-red-500 min-[391px]:text-[14px]"}>{isIncome ? "+" : "-"}QAR {formatAmount(row.amount)}</p>
+      </button>
+      <button onClick={onActions} aria-label="Transaction actions" className="text-[#64748B]"><DotsIcon /></button>
+    </div>
+  );
+}
+
+function UploadPage({ latestPeriod, uploadStatus, onUpload }: { latestPeriod: StatementPeriodInfo | null; uploadStatus: string; onUpload: (event: ChangeEvent<HTMLInputElement>) => void }) {
+  return (
+    <section>
+      <PageHeader title="Upload Statement" subtitle="Upload a PDF, CSV, or Excel statement to import your transactions." />
+      <label className="flex h-[190px] cursor-pointer flex-col items-center justify-center rounded-[24px] border border-dashed border-[#A78BFA] bg-white px-6 text-center shadow-[0_10px_24px_rgba(15,23,42,0.04)] min-[391px]:h-[204px]">
+        <div className="grid h-14 w-14 place-items-center rounded-full bg-violet-50 text-[#633EF2]"><UploadIcon /></div>
+        <h2 className="mt-3 text-[18px] font-extrabold tracking-[-0.02em] min-[391px]:text-[19px]">Upload bank statement</h2>
+        <p className="mt-1 text-[14px] font-medium text-[#64708A]">PDF, CSV, XLS, or XLSX</p>
+        <span className="mt-4 rounded-full bg-[#633EF2] px-5 py-2.5 text-[14px] font-bold text-white shadow-lg shadow-[#633EF2]/20">Choose File</span>
+        <input type="file" accept=".csv,.pdf,.xls,.xlsx,.txt" onChange={onUpload} className="sr-only" />
+      </label>
+      <div className="mt-4 rounded-[24px] bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
+        <h3 className="text-[17px] font-extrabold">Statement details</h3>
+        <div className="mt-3 grid gap-3">
+          <FieldPreview label="Bank name" value="QNB" />
+          <FieldPreview label="Detected period" value={latestPeriod ? latestPeriod.label : "Detected after upload"} />
+          <FieldPreview label="Currency" value="QAR" />
+        </div>
+        <p className="mt-4 rounded-[16px] bg-emerald-50 p-3 text-[13px] font-semibold leading-snug text-emerald-700">Privacy default: the original statement is deleted after processing. FinWise stores only extracted transaction data.</p>
+        <button className="mt-4 h-12 w-full rounded-[16px] bg-[#633EF2] text-[15px] font-extrabold text-white">Process Statement</button>
+      </div>
+      <StatusCard title="Processing status" body={uploadStatus} />
+    </section>
+  );
+}
+
+function InsightsPage({ transactions }: { transactions: Transaction[] }) {
+  const [sheet, setSheet] = useState<string | null>(null);
+  const viewportWidth = useAppViewportWidth();
+  const trendChartWidth = Math.max(286, Math.min(360, viewportWidth - 74));
+  const dynamicTrendRows = useMemo(() => buildTrendRows(transactions), [transactions]);
+  const dynamicInsightCategories = useMemo(() => getInsightCategories(transactions), [transactions]);
+  const dynamicMerchantInsights = useMemo(() => getMerchantInsights(transactions), [transactions]);
+  const topCategory = dynamicInsightCategories[0];
+
+  return (
+    <section>
+      <AppTopBar />
+      <div className="mb-4 flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-[31px] font-extrabold leading-none tracking-[-0.045em] text-[#0F172A]">Analytics</h1>
+          <p className="mt-2 text-[14px] font-medium leading-snug text-[#64748B]">Smart analysis of your spending habits.</p>
+        </div>
+        <button onClick={() => setSheet("Insight period")} className="flex h-11 shrink-0 items-center gap-2 rounded-[15px] bg-white px-3 text-[13px] font-bold text-[#334155] shadow-sm ring-1 ring-[#E2E8F0]">
+          <CalendarIcon />
+          This Month
+          <ChevronDownIcon />
+        </button>
+      </div>
+
+      <section className="rounded-[24px] bg-[#F3EDFF] p-4 shadow-[0_10px_24px_rgba(109,53,245,0.075)] ring-1 ring-[#EDE7FF] min-[391px]:p-[18px]">
+        <div className="flex items-center gap-3">
+          <RobotIcon />
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-extrabold text-[#6D35F5]">AI Insight</p>
+            <h2 className="mt-1 text-[17px] font-extrabold leading-[1.3] tracking-[-0.02em] text-[#0F172A] min-[390px]:text-[18px]">{topCategory?.label ?? "Spending"} is your top category.</h2>
+            <p className="mt-1.5 text-[13px] font-medium leading-[1.45] text-[#475569]">You&apos;ve spent QAR {formatAmount(topCategory?.amount ?? 0)} here. Review low-confidence transactions to improve future categorization.</p>
+          </div>
+          <button onClick={() => setSheet("AI insight details")} className="hidden h-10 shrink-0 rounded-[14px] border border-[#C4B5FD] bg-white/70 px-4 text-[13px] font-extrabold text-[#5A36ED] min-[430px]:block">View Details</button>
+        </div>
+        <button onClick={() => setSheet("AI insight details")} className="mt-3 h-10 rounded-[14px] border border-[#C4B5FD] bg-white/70 px-4 text-[13px] font-extrabold text-[#5A36ED] min-[430px]:hidden">View Details</button>
+      </section>
+
+      <div className="mt-3 grid grid-cols-1 gap-3">
+        <InsightPanel title="Monthly Trend" aside={<span className="text-[13px] font-bold text-emerald-500 sm:text-[11px]">Up 15.3% vs last month</span>}>
+          <div className="mt-3 flex h-[160px] justify-center overflow-hidden">
+            <AreaChart width={trendChartWidth} height={160} data={dynamicTrendRows} margin={{ top: 8, right: 2, left: -8, bottom: 0 }} tabIndex={-1} accessibilityLayer={false}>
+              <defs>
+                <linearGradient id="trendFill" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0%" stopColor="#6D35F5" stopOpacity={0.25} />
+                  <stop offset="100%" stopColor="#6D35F5" stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid stroke="#EEF2F7" vertical={false} />
+              <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#64748B" }} axisLine={false} tickLine={false} interval="preserveStartEnd" tickMargin={7} padding={{ left: 4, right: 22 }} />
+              <YAxis tick={{ fontSize: 10, fill: "#64748B" }} axisLine={false} tickLine={false} width={34} ticks={[0, 2000, 4000, 6000, 8000, 10000]} tickFormatter={(value) => (value === 0 ? "0" : `${Number(value) / 1000}K`)} />
+              <Tooltip cursor={false} formatter={(value) => [`QAR ${formatAmount(Number(value))}`, "Spent"]} labelStyle={{ color: "#0F172A", fontWeight: 700 }} contentStyle={{ border: 0, borderRadius: 14, boxShadow: "0 12px 28px rgba(15,23,42,0.12)" }} wrapperStyle={{ outline: "none", border: 0 }} />
+              <Area type="linear" dataKey="amount" stroke="#6D35F5" strokeWidth={3} fill="url(#trendFill)" activeDot={{ r: 5, fill: "#6D35F5", stroke: "#DDD6FE", strokeWidth: 5 }} dot={{ r: 3.4, fill: "#6D35F5", stroke: "#FFFFFF", strokeWidth: 2 }} />
+            </AreaChart>
+          </div>
+        </InsightPanel>
+
+        <InsightPanel title="Top Spending Categories" aside={<button onClick={() => setSheet("All categories")} className="h-8 shrink-0 whitespace-nowrap rounded-[10px] border border-[#C4B5FD] px-3 text-[12px] font-extrabold text-[#5A36ED]">View All</button>}>
+          <div className="mt-3 space-y-2.5">
+            {dynamicInsightCategories.slice(0, 5).map((item, index) => (
+              <button key={item.label} onClick={() => setSheet(`${item.label} category`)} className="block w-full text-left">
+                <div className="grid grid-cols-[18px_12px_minmax(86px,112px)_minmax(46px,1fr)_78px] items-center gap-2">
+                  <span className="text-[12px] font-bold text-[#0F172A]">{index + 1}</span>
+                  <span className="h-3 w-3 rounded-full" style={{ backgroundColor: item.color }} />
+                  <span className="min-w-0 truncate text-[12.5px] font-semibold text-[#334155] min-[391px]:text-[13px]">{item.label}</span>
+                  <span className="h-1.5 rounded-full bg-slate-100">
+                    <span className="block h-full rounded-full bg-[#6D35F5]" style={{ width: `${Math.min(100, item.percent * 3.2)}%` }} />
+                  </span>
+                  <span className="justify-self-end whitespace-nowrap text-[11.5px] font-medium text-[#64748B] min-[391px]:text-[12px]">QAR {formatAmount(item.amount)}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </InsightPanel>
+
+        <InsightPanel title="Merchant Insights" aside={<button onClick={() => setSheet("Merchant insights")} className="h-8 rounded-[10px] border border-[#C4B5FD] px-3 text-[12px] font-extrabold text-[#5A36ED]">View All</button>}>
+          <div className="mt-3 divide-y divide-[#EEF2F7]">
+            {dynamicMerchantInsights.map((item) => (
+              <button key={item.merchant} onClick={() => setSheet(`${item.merchant} insight`)} className="flex w-full items-center gap-3 py-2.5 text-left">
+                <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full text-[13px] font-extrabold ${item.color}`}>{item.merchant[0]}</span>
+                <span className="min-w-0 flex-1 text-[13px] font-bold text-[#0F172A]">{item.merchant}</span>
+                <span className="text-right">
+                  <span className="block whitespace-nowrap text-[12px] font-semibold text-[#334155]">QAR {formatAmount(item.amount)}</span>
+                  <span className={item.up ? "block text-[12px] font-bold text-red-500" : "block text-[12px] font-bold text-emerald-500"}>{item.up ? "Up" : "Down"} {item.change.replace("+", "").replace("-", "")}</span>
+                </span>
+                <ChevronIcon />
+              </button>
+            ))}
+          </div>
+        </InsightPanel>
+
+        <InsightPanel title="Smart Recommendations">
+          <div className="mt-2 divide-y divide-[#EEF2F7]">
+            {[
+              ["Reduce Food Delivery", "Try cooking at home 2 more times a week to save up to QAR 395 this month."],
+              ["Review Subscriptions", "You're paying for 3 active subscriptions. Review unused ones."],
+              ["Set a Grocery Budget", "You've spent a total of QAR 937. Try setting a weekly limit."]
+            ].map(([title, body]) => (
+              <button key={title} onClick={() => setSheet(title)} className="flex w-full items-center gap-3 py-2.5 text-left">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[11px] bg-violet-50 text-[#6D35F5]"><WalletIcon /></span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[12.5px] font-extrabold text-[#0F172A]">{title}</span>
+                  <span className="mt-0.5 block text-[11px] font-medium leading-snug text-[#64748B]">{body}</span>
+                </span>
+                <ChevronIcon />
+              </button>
+            ))}
+          </div>
+        </InsightPanel>
+
+        <section className="rounded-[22px] bg-emerald-50 p-5 shadow-[0_10px_26px_rgba(15,23,42,0.035)] ring-1 ring-emerald-100">
+          <div className="flex items-start gap-4">
+            <div className="min-w-0 flex-1">
+              <h2 className="text-[17px] font-extrabold tracking-[-0.02em] text-[#0F172A]">Savings Opportunity</h2>
+              <p className="mt-3 text-[13px] font-medium text-[#475569]">You could save up to</p>
+              <p className="mt-1 text-[30px] font-extrabold tracking-[-0.04em] text-emerald-600">QAR 827.00</p>
+              <p className="text-[15px] font-bold text-emerald-600">this month</p>
+              <p className="mt-2 text-[13px] font-medium leading-snug text-[#475569]">by optimizing your spending in key categories.</p>
+            </div>
+            <div className="grid h-16 w-16 shrink-0 place-items-center rounded-[20px] bg-white text-emerald-600 shadow-sm"><WalletIcon /></div>
+          </div>
+          <button onClick={() => setSheet("Savings opportunity")} className="mt-4 h-10 rounded-[13px] bg-white px-5 text-[13px] font-extrabold text-emerald-700 ring-1 ring-emerald-200">See How</button>
+        </section>
+      </div>
+      <BottomSheet title={sheet} onClose={() => setSheet(null)} />
+    </section>
+  );
+}
+
+function StatementsPage({ transactions, latestPeriod, setActiveView }: { transactions: Transaction[]; latestPeriod: StatementPeriodInfo | null; setActiveView: (view: ActiveView) => void }) {
+  const groups = useMemo(() => groupTransactionsByMonth(transactions), [transactions]);
+  return (
+    <section>
+      <PageHeader title="Statements" subtitle="View uploaded statement history and processing results." actionLabel="Upload" onAction={() => setActiveView("upload")} />
+      <div className="grid gap-4">
+        {groups.map((group) => (
+          <StatementHistoryCard key={group.month} month={group.month} bank={latestPeriod ? `${latestPeriod.label} · ${formatPeriodDates(latestPeriod)}` : "Imported statement"} imported={`${group.count} transactions`} review={`${group.rows.filter((row) => row.needsReview).length} need review`} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function SettingsPage({ setActiveView }: { setActiveView: (view: ActiveView) => void }) {
+  return (
+    <section>
+      <PageHeader title="Settings" subtitle="Manage privacy, categories, rules, and exports." />
+      <div className="grid gap-3.5">
+        <SettingsGroup title="Data & Privacy" items={["Original statements are deleted after processing", "Keep original statements: Off", "Export extracted transaction data"]} />
+        <SettingsGroup title="Categories" items={["Manage category colors and icons", "Merchant rules", "Low-confidence review queue"]} />
+        <button onClick={() => setActiveView("statements")} className="flex min-h-[56px] items-center justify-between rounded-[20px] bg-white px-4 text-left shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
+          <span className="text-[15px] font-extrabold">Statement history</span>
+          <ChevronIcon />
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function PageHeader({ title, subtitle, actionLabel, onAction }: { title: string; subtitle: string; actionLabel?: string; onAction?: () => void }) {
+  return (
+    <header className="mb-4 flex items-start justify-between gap-3 pt-1">
+      <div className="min-w-0">
+        <h1 className="text-[clamp(27px,7vw,31px)] font-extrabold leading-tight tracking-[-0.04em] text-[#11152D]">{title}</h1>
+        <p className="mt-1 text-[15px] font-medium leading-snug text-[#64708A] min-[391px]:text-[15.5px]">{subtitle}</p>
+      </div>
+      {actionLabel ? <button onClick={onAction} className="shrink-0 rounded-full bg-[#633EF2] px-4 py-2 text-[13px] font-bold text-white">{actionLabel}</button> : null}
+    </header>
+  );
+}
+
+function AppTopBar() {
+  return (
+    <header className="mb-5 flex items-center justify-between pt-1">
+      <div className="flex items-center gap-2.5">
+        <LogoMark />
+        <span className="text-[22px] font-extrabold tracking-[-0.035em] text-[#0F172A]">FinWise</span>
+      </div>
+      <div className="flex items-center gap-3">
+        <button aria-label="Notifications" className="relative grid h-9 w-9 place-items-center rounded-full bg-white text-[#334155] ring-1 ring-[#E8ECF3]">
+          <BellIcon />
+          <span className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-[#6D35F5] ring-2 ring-white" />
+        </button>
+        <div className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-amber-100 to-sky-100 text-[15px] font-extrabold text-[#0F172A] ring-2 ring-white">S</div>
+      </div>
+    </header>
+  );
+}
+
+function MetricCard({ label, value, helper, tone = "slate" }: { label: string; value: string; helper: string; tone?: "slate" | "red" | "green" | "purple" }) {
+  const valueClass = tone === "red" ? "text-red-500" : tone === "green" ? "text-emerald-500" : tone === "purple" ? "text-[#6D35F5]" : "text-[#0F172A]";
+  return (
+    <article className="min-h-[88px] rounded-[18px] bg-white p-3 shadow-[0_10px_22px_rgba(15,23,42,0.035)] ring-1 ring-[rgba(15,23,42,0.055)]">
+      <p className="text-[12px] font-bold uppercase tracking-[0.04em] text-[#64748B]">{label}</p>
+      <p className={`mt-2 truncate text-[16px] font-extrabold tracking-[-0.03em] min-[391px]:text-[17px] ${valueClass}`}>{value}</p>
+      <p className="mt-1.5 text-[12px] font-medium text-[#64748B]">{helper}</p>
+    </article>
+  );
+}
+
+function InsightPanel({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="rounded-[22px] bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-[17px] font-extrabold tracking-[-0.02em] text-[#0F172A]">{title}</h2>
+        {aside}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function CategoryCorrectionSheet({ transaction, onClose, onSave }: { transaction: Transaction | null; onClose: () => void; onSave: (category: Transaction["category"]) => void }) {
+  if (!transaction) return null;
+
+  return (
+    <div className="fixed inset-0 z-20 flex items-end justify-center bg-slate-950/25 px-4 pb-[calc(14px+env(safe-area-inset-bottom))]" onClick={onClose}>
+      <section onClick={(event) => event.stopPropagation()} className="w-full max-w-[430px] rounded-[24px] bg-white p-5 shadow-2xl">
+        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-slate-200" />
+        <h2 className="text-[20px] font-extrabold tracking-[-0.03em] text-[#0F172A]">Correct category</h2>
+        <p className="mt-1 text-[13px] font-medium text-[#64748B]">{transaction.merchant}</p>
+        <div className="mt-4 grid max-h-[320px] grid-cols-2 gap-2 overflow-y-auto pr-1">
+          {categories.map((category) => (
+            <button
+              key={category}
+              onClick={() => onSave(category)}
+              className={category === transaction.category ? "min-h-10 rounded-[14px] bg-[#6D35F5] px-3 text-[12px] font-extrabold text-white" : "min-h-10 rounded-[14px] bg-[#F8FAFC] px-3 text-[12px] font-bold text-[#334155] ring-1 ring-[#E2E8F0]"}
+            >
+              {category}
+            </button>
+          ))}
+        </div>
+        <p className="mt-4 rounded-[14px] bg-emerald-50 p-3 text-[12px] font-semibold leading-snug text-emerald-700">Saving a correction also saves a merchant rule, so future uploads classify this merchant automatically.</p>
+      </section>
+    </div>
+  );
+}
+
+function BottomSheet({ title, onClose }: { title: string | null; onClose: () => void }) {
+  if (!title) return null;
+
+  return (
+    <div className="fixed inset-0 z-20 flex items-end justify-center bg-slate-950/25 px-4 pb-[calc(14px+env(safe-area-inset-bottom))]" onClick={onClose}>
+      <section onClick={(event) => event.stopPropagation()} className="w-full max-w-[430px] rounded-[24px] bg-white p-5 shadow-2xl">
+        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-slate-200" />
+        <h2 className="text-[20px] font-extrabold tracking-[-0.03em] text-[#0F172A]">{title}</h2>
+        <p className="mt-2 text-[14px] font-medium leading-relaxed text-[#64748B]">This interaction is wired in the UI. The next step is connecting it to real filters, records, and saved rules.</p>
+        <button onClick={onClose} className="mt-5 h-12 w-full rounded-[16px] bg-[#6D35F5] text-[15px] font-extrabold text-white">Done</button>
+      </section>
+    </div>
+  );
+}
+
+function MiniMetric({ label, value, tone = "slate" }: { label: string; value: string; tone?: "slate" | "red" | "green" }) {
+  const toneClass = tone === "green" ? "text-emerald-500" : tone === "red" ? "text-red-500" : "text-[#111827]";
+  return (
+    <div className="rounded-[18px] bg-white p-3 shadow-[0_10px_26px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.06)]">
+      <p className="text-[11px] font-bold uppercase tracking-[0.04em] text-[#64708A]">{label}</p>
+      <p className={`mt-1 truncate text-[14px] font-extrabold ${toneClass}`}>{value}</p>
+    </div>
+  );
+}
+
+function FieldPreview({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex h-12 items-center justify-between rounded-[16px] bg-[#F8FAFC] px-4 ring-1 ring-[#E2E8F0]">
+      <span className="text-[13px] font-bold text-[#64708A]">{label}</span>
+      <span className="text-[14px] font-extrabold text-[#111827]">{value}</span>
+    </div>
+  );
+}
+
+function StatusCard({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="mt-4 rounded-[20px] bg-white p-4 shadow-[0_10px_26px_rgba(15,23,42,0.045)] ring-1 ring-[rgba(15,23,42,0.06)]">
+      <p className="text-[15px] font-extrabold">{title}</p>
+      <p className="mt-1 text-[13px] font-medium text-[#64708A]">{body}</p>
+    </div>
+  );
+}
+
+function InsightCard({ title, body, action }: { title: string; body: string; action: string }) {
+  return (
+    <article className="rounded-[24px] bg-white p-5 shadow-[0_10px_26px_rgba(15,23,42,0.045)] ring-1 ring-[rgba(15,23,42,0.06)]">
+      <h2 className="text-[20px] font-extrabold tracking-[-0.03em] text-[#111827]">{title}</h2>
+      <p className="mt-2 text-[14px] font-medium leading-relaxed text-[#64708A]">{body}</p>
+      <button className="mt-4 text-[14px] font-extrabold text-[#633EF2]">{action}</button>
+    </article>
+  );
+}
+
+function StatementHistoryCard({ month, bank, imported, review }: { month: string; bank: string; imported: string; review: string }) {
+  return (
+    <article className="rounded-[24px] bg-white p-4 shadow-[0_10px_26px_rgba(15,23,42,0.045)] ring-1 ring-[rgba(15,23,42,0.06)]">
+      <div className="flex items-start gap-3">
+        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-violet-50 text-[#633EF2]"><StatementIcon /></div>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-[17px] font-extrabold tracking-[-0.02em]">{month}</h2>
+          <p className="text-[13px] font-medium text-[#64708A]">{bank}</p>
+          <p className="mt-2 text-[13px] font-semibold text-[#111827]">{imported}</p>
+          <p className="text-[13px] font-semibold text-amber-500">{review}</p>
+          <p className="mt-2 inline-flex rounded-full bg-emerald-50 px-3 py-1.5 text-[12px] font-bold text-emerald-600">Original file deleted</p>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function SettingsGroup({ title, items }: { title: string; items: string[] }) {
+  return (
+    <section className="rounded-[23px] bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
+      <h2 className="text-[17px] font-extrabold tracking-[-0.02em]">{title}</h2>
+      <div className="mt-2.5 divide-y divide-[#E8ECF3]">
+        {items.map((item) => (
+          <button key={item} className="flex w-full items-center justify-between gap-4 py-3 text-left text-[13.5px] font-semibold leading-snug text-[#111827] min-[391px]:text-[14px]">
+            {item}
+            <ChevronIcon />
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function BottomNavigation({ activeView, setActiveView }: { activeView: ActiveView; setActiveView: (view: ActiveView) => void }) {
+  return (
+    <nav className="fixed inset-x-0 bottom-0 z-10 mx-auto w-full max-w-[430px] rounded-t-[26px] bg-white px-5 pb-[calc(10px+env(safe-area-inset-bottom))] pt-2.5 shadow-2xl shadow-slate-400/30 ring-1 ring-[rgba(15,23,42,0.06)] sm:bottom-5 sm:rounded-[26px]">
+      <div className="grid grid-cols-5 items-end text-center text-[12px] font-medium text-[#536180] min-[391px]:text-[13px]">
+        <NavItem label="Home" active={activeView === "home"} icon={<HomeIcon />} onClick={() => setActiveView("home")} />
+        <NavItem label="Transactions" active={activeView === "transactions"} icon={<ReceiptIcon />} onClick={() => setActiveView("transactions")} />
+        <NavItem label="Upload" active={activeView === "upload"} icon={<UploadIcon />} onClick={() => setActiveView("upload")} raised />
+        <NavItem label="Analytics" active={activeView === "insights"} icon={<ChartIcon />} onClick={() => setActiveView("insights")} />
+        <NavItem label="Settings" active={activeView === "settings" || activeView === "statements"} icon={<GearIcon />} onClick={() => setActiveView("settings")} dot />
+      </div>
+    </nav>
+  );
+}
+
+function NavItem({ label, icon, active, onClick, dot, raised }: { label: string; icon: ReactNode; active?: boolean; onClick: () => void; dot?: boolean; raised?: boolean }) {
+  return (
+    <button onClick={onClick} className={active ? "relative text-[#5D36F0]" : "relative text-[#536180]"}>
+      <div className={raised ? "relative mx-auto mb-0.5 grid h-9 w-9 -translate-y-1 place-items-center rounded-full bg-[#633EF2] text-white shadow-lg shadow-[#633EF2]/25" : "relative mx-auto mb-0.5 grid h-7 w-7 place-items-center min-[391px]:h-8 min-[391px]:w-8"}>
+        {icon}
+        {dot ? <span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-full bg-[#5D36F0]" /> : null}
+      </div>
+      <span className={raised ? "-mt-1 block" : "block"}>{label}</span>
+    </button>
+  );
+}
+
+function getSummary(transactions: Transaction[]) {
+  const income = transactions.filter((row) => row.direction === "income").reduce((sum, row) => sum + row.amount, 0);
+  const expenses = transactions.filter((row) => row.direction === "expense").reduce((sum, row) => sum + row.amount, 0);
+  return {
+    income,
+    expenses,
+    net: income - expenses,
+    balance: income - expenses
+  };
+}
+
+function getSpendingRows(transactions: Transaction[], period: SpendingPeriod): SpendingRow[] {
+  const rows = filterByPeriod(transactions, period).filter((row) => row.direction === "expense");
+  const totals = new Map<string, number>();
+  rows.forEach((row) => totals.set(row.category, (totals.get(row.category) ?? 0) + row.amount));
+  const total = Array.from(totals.values()).reduce((sum, amount) => sum + amount, 0);
+
+  const spendingRows = Array.from(totals.entries())
+    .map(([label, amount]) => ({
+      label: label === "Ordering Out" ? "Dining Out" : label,
+      amount,
+      percent: total ? Number(((amount / total) * 100).toFixed(1)) : 0,
+      color: categoryColors[label] ?? categoryColors.Other
+    }))
+    .sort((left, right) => right.amount - left.amount)
+    .slice(0, 5);
+
+  return spendingRows.length ? spendingRows : spendingByPeriod[period];
+}
+
+function getInsightCategories(transactions: Transaction[]) {
+  const rows = getSpendingRows(transactions, "This Month");
+  return rows.map((row) => ({ ...row, label: row.label === "Dining Out" ? "Ordering Out" : row.label }));
+}
+
+function getMerchantInsights(transactions: Transaction[]) {
+  const totals = new Map<string, number>();
+  transactions.filter((row) => row.direction === "expense").forEach((row) => {
+    totals.set(row.merchant, (totals.get(row.merchant) ?? 0) + row.amount);
+  });
+
+  const rows = Array.from(totals.entries())
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 4)
+    .map(([merchant, amount]) => ({ merchant: toTitle(merchant), amount, change: "+0%", up: true, color: "bg-violet-50 text-violet-600" }));
+
+  return rows.length ? rows : merchantInsights;
+}
+
+function buildTrendRows(transactions: Transaction[]) {
+  const expenseRows = transactions.filter((row) => row.direction === "expense").sort((left, right) => left.date.localeCompare(right.date));
+  if (!expenseRows.length) return trendRows;
+
+  const month = expenseRows[expenseRows.length - 1].date.slice(0, 7);
+  const monthRows = expenseRows.filter((row) => row.date.startsWith(month));
+  const checkpoints = [1, 8, 15, 22, 30];
+  let cumulative = 0;
+
+  return checkpoints.map((day) => {
+    cumulative = monthRows
+      .filter((row) => Number(row.date.slice(8, 10)) <= day)
+      .reduce((sum, row) => sum + row.amount, 0);
+    return { date: `${getShortMonth(month)} ${day}`, amount: cumulative };
+  });
+}
+
+function groupTransactionsByMonth(transactions: Transaction[]) {
+  const groups = new Map<string, Transaction[]>();
+  [...transactions].sort((left, right) => right.date.localeCompare(left.date)).forEach((transaction) => {
+    const month = getMonthLabel(transaction.date);
+    groups.set(month, [...(groups.get(month) ?? []), transaction]);
+  });
+
+  return Array.from(groups.entries()).map(([month, rows]) => ({
+    month,
+    count: rows.length,
+    rows
+  }));
+}
+
+function filterByPeriod(transactions: Transaction[], period: SpendingPeriod) {
+  const sorted = [...transactions].sort((left, right) => right.date.localeCompare(left.date));
+  const currentMonth = sorted[0]?.date.slice(0, 7);
+  if (!currentMonth || period === "Year") return transactions;
+  if (period === "This Month") return transactions.filter((row) => row.date.startsWith(currentMonth));
+
+  const date = new Date(`${currentMonth}-01T00:00:00`);
+  date.setMonth(date.getMonth() - 1);
+  const lastMonth = date.toISOString().slice(0, 7);
+  return transactions.filter((row) => row.date.startsWith(lastMonth));
+}
+
+function getMonthLabel(date: string) {
+  const parsed = new Date(`${date.slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return "Imported";
+  return parsed.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+}
+
+function getShortMonth(month: string) {
+  const parsed = new Date(`${month}-01T00:00:00`);
+  return parsed.toLocaleDateString("en-US", { month: "short" });
+}
+
+function formatMonthRange(transactions: Transaction[]) {
+  if (!transactions.length) return "No statements yet";
+  const sorted = [...transactions].sort((left, right) => left.date.localeCompare(right.date));
+  return `${getMonthLabel(sorted[0].date)} - ${getMonthLabel(sorted[sorted.length - 1].date)}`;
+}
+
+function formatPeriodDates(period: StatementPeriodInfo) {
+  if (!period.startDate || !period.endDate) return "Unknown dates";
+  return `${period.startDate} to ${period.endDate}`;
+}
+
+function saveMerchantRule(transaction: Transaction, category: Transaction["category"]) {
+  const pattern = transaction.merchant.toLowerCase().trim();
+  if (!pattern) return;
+
+  try {
+    const current = JSON.parse(window.localStorage.getItem("finwise.merchantRules") ?? "[]") as Array<{ pattern: string; category: Transaction["category"] }>;
+    const next = [{ pattern, category }, ...current.filter((rule) => rule.pattern !== pattern)];
+    window.localStorage.setItem("finwise.merchantRules", JSON.stringify(next.slice(0, 200)));
+  } catch {
+    window.localStorage.setItem("finwise.merchantRules", JSON.stringify([{ pattern, category }]));
+  }
+}
+
+function dedupe(transactions: Transaction[]) {
+  const seen = new Set<string>();
+  return transactions.filter((transaction) => {
+    if (seen.has(transaction.duplicateHash)) return false;
+    seen.add(transaction.duplicateHash);
+    return true;
+  });
+}
+
+function isDemoDataset(transactions: Transaction[]) {
+  return transactions.length > 0 && transactions.every((transaction) => transaction.id.startsWith("demo-"));
+}
+
+function useAppViewportWidth() {
+  const [width, setWidth] = useState(390);
+
+  useEffect(() => {
+    const updateWidth = () => setWidth(Math.min(window.innerWidth, 440));
+    updateWidth();
+    window.addEventListener("resize", updateWidth);
+    return () => window.removeEventListener("resize", updateWidth);
+  }, []);
+
+  return width;
+}
+
+function formatAmount(value: number) {
+  return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatCompact(value: number) {
+  if (value >= 1000) return `${Math.round(value / 1000)}k`;
+  return formatAmount(value);
+}
+
+function toTitle(value: string) {
+  return value.toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function makeConicGradient(rows: SpendingRow[]) {
+  let start = 0;
+  const stops = rows.map((row) => {
+    const end = start + row.percent;
+    const segment = `${row.color} ${start}% ${end}%`;
+    start = end;
+    return segment;
+  });
+  return `conic-gradient(${stops.join(", ")})`;
+}
+
+function IconShell({ children, className = "h-5 w-5" }: { children: ReactNode; className?: string }) {
+  return <svg aria-hidden="true" viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">{children}</svg>;
+}
+
+function BellIcon() { return <IconShell><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" /></IconShell>; }
+function LogoMark() { return <svg aria-hidden="true" viewBox="0 0 28 28" className="h-8 w-8"><rect x="3" y="15" width="5" height="10" rx="2.5" fill="#38BDF8" /><rect x="11.5" y="9" width="5" height="16" rx="2.5" fill="#6D35F5" /><rect x="20" y="3" width="5" height="22" rx="2.5" fill="#D946EF" /></svg>; }
+function RobotIcon() { return <svg aria-hidden="true" viewBox="0 0 72 72" className="h-[64px] w-[64px] shrink-0"><circle cx="36" cy="39" r="25" fill="#EDE9FE" /><path d="M23 32c0-8 6-14 13-14s13 6 13 14v11c0 8-6 13-13 13s-13-5-13-13V32Z" fill="#5B21B6" /><rect x="18" y="34" width="36" height="20" rx="10" fill="#6D35F5" /><circle cx="29" cy="44" r="3.5" fill="white" /><circle cx="43" cy="44" r="3.5" fill="white" /><path d="M36 18v-7" stroke="#6D35F5" strokeWidth="3" strokeLinecap="round" /><circle cx="36" cy="9" r="3" fill="#6D35F5" /><path d="M18 42h-4M58 42h-4" stroke="#6D35F5" strokeWidth="4" strokeLinecap="round" /></svg>; }
+function EyeIcon() { return <IconShell className="h-5 w-5"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></IconShell>; }
+function TrendIcon() { return <IconShell className="h-7 w-7"><path d="m5 15 5-5 4 4 5-7" /><path d="M15 7h4v4" /></IconShell>; }
+function ArrowDownIcon() { return <IconShell><path d="M12 4v15" /><path d="m6 13 6 6 6-6" /></IconShell>; }
+function ArrowUpIcon() { return <IconShell><path d="M12 20V5" /><path d="m6 11 6-6 6 6" /></IconShell>; }
+function WalletIcon() { return <IconShell><path d="M4 7h16v12H4z" /><path d="M16 12h4" /></IconShell>; }
+function StatementIcon() { return <IconShell className="h-7 w-7"><path d="M7 3h8l4 4v14H7z" /><path d="M15 3v5h5" /><path d="M10 13h6" /><path d="M10 17h4" /></IconShell>; }
+function CheckIcon() { return <svg aria-hidden="true" viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m3 8 3 3 7-7" /></svg>; }
+function ChevronIcon() { return <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5 text-[#536180]" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /></svg>; }
+function HomeIcon() { return <IconShell><path d="m3 11 9-8 9 8" /><path d="M5 10v10h14V10" /></IconShell>; }
+function ReceiptIcon() { return <IconShell><path d="M7 3h10v18l-2-1-2 1-2-1-2 1-2-1z" /><path d="M9 8h6" /><path d="M9 12h6" /></IconShell>; }
+function UploadIcon() { return <IconShell><path d="M12 16V4" /><path d="m7 9 5-5 5 5" /><path d="M5 20h14" /></IconShell>; }
+function ChartIcon() { return <IconShell><path d="M6 20V10" /><path d="M12 20V4" /><path d="M18 20v-7" /></IconShell>; }
+function GearIcon() { return <IconShell><circle cx="12" cy="12" r="3" /><path d="M19.4 15a8 8 0 0 0 .1-2l2-1.5-2-3.5-2.4 1a8 8 0 0 0-1.7-1L15 5.5h-4L10.6 8a8 8 0 0 0-1.7 1l-2.4-1-2 3.5 2 1.5a8 8 0 0 0 .1 2l-2.1 1.5 2 3.5 2.4-1a8 8 0 0 0 1.7 1l.4 2.5h4l.4-2.5a8 8 0 0 0 1.7-1l2.4 1 2-3.5z" /></IconShell>; }
+function SearchIcon() { return <IconShell className="h-4 w-4"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></IconShell>; }
+function ChevronDownIcon() { return <IconShell className="h-4 w-4"><path d="m6 9 6 6 6-6" /></IconShell>; }
+function ChevronUpIcon({ collapsed }: { collapsed?: boolean }) { return <IconShell className={collapsed ? "h-4 w-4 rotate-180" : "h-4 w-4"}><path d="m18 15-6-6-6 6" /></IconShell>; }
+function FilterIcon() { return <IconShell className="h-4 w-4"><path d="M4 6h16" /><path d="M7 12h10" /><path d="M10 18h4" /></IconShell>; }
+function CalendarIcon() { return <IconShell className="h-4 w-4"><path d="M8 2v4" /><path d="M16 2v4" /><path d="M3 10h18" /><rect x="3" y="4" width="18" height="18" rx="3" /></IconShell>; }
+function OpenIcon() { return <IconShell className="h-4 w-4"><path d="M14 3h7v7" /><path d="m10 14 11-11" /><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" /></IconShell>; }
+function DotsIcon() { return <IconShell className="h-4 w-4"><path d="M12 5h.01" /><path d="M12 12h.01" /><path d="M12 19h.01" /></IconShell>; }

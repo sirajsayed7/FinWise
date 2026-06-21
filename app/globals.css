@@ -1,0 +1,99 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  background: #f8fafc;
+  color: #111827;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  min-height: 100%;
+  background: #f8fafc;
+}
+
+body {
+  min-height: 100%;
+  margin: 0;
+  background:
+    radial-gradient(circle at top left, rgba(124, 58, 237, 0.08), transparent 28rem),
+    linear-gradient(180deg, #fafbff 0%, #f8fafc 54%, #eef2ff 100%);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus:not(:focus-visible),
+input:focus:not(:focus-visible),
+select:focus:not(:focus-visible),
+a:focus:not(:focus-visible),
+svg:focus {
+  outline: none;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+a:focus-visible {
+  outline: 3px solid rgba(99, 62, 242, 0.3);
+  outline-offset: 2px;
+}
+
+.scrollbar-thin {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  display: none;
+}
+
+.recharts-wrapper,
+.recharts-surface,
+.recharts-layer,
+.recharts-sector,
+.recharts-curve,
+.recharts-dot,
+.recharts-active-dot {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.recharts-wrapper *,
+.recharts-wrapper *:focus,
+.recharts-wrapper *:focus-visible,
+.recharts-wrapper:focus,
+.recharts-wrapper:focus-visible,
+.recharts-surface:focus,
+.recharts-surface:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.recharts-tooltip-wrapper {
+  outline: none !important;
+  border: 0 !important;
+}
+
+.recharts-tooltip-cursor {
+  pointer-events: none;
+}
