@@ -40,6 +40,7 @@ export async function parseStatementFile(file: File, bank: string, rules: Mercha
 
   if (extension === "pdf") {
     const buffer = Buffer.from(await file.arrayBuffer());
+    installPdfRuntimeGlobals();
     const { PDFParse } = requirePdfParser("pdf-parse") as typeof import("pdf-parse");
     PDFParse.setWorker(pathToFileURL(path.join(process.cwd(), "node_modules", "pdfjs-dist", "build", "pdf.worker.mjs")).href);
     const parser = new PDFParse({ data: buffer });
@@ -52,6 +53,33 @@ export async function parseStatementFile(file: File, bank: string, rules: Mercha
   }
 
   throw new Error("Unsupported statement format. Upload CSV, TXT, XLS, XLSX, or a text-based PDF.");
+}
+
+function installPdfRuntimeGlobals() {
+  const canvas = requirePdfParser("@napi-rs/canvas") as {
+    DOMMatrix?: typeof DOMMatrix;
+    DOMPoint?: typeof DOMPoint;
+    DOMRect?: typeof DOMRect;
+    ImageData?: typeof ImageData;
+    Path2D?: typeof Path2D;
+  };
+  const target = globalThis as typeof globalThis & {
+    DOMMatrix?: typeof DOMMatrix;
+    DOMPoint?: typeof DOMPoint;
+    DOMRect?: typeof DOMRect;
+    ImageData?: typeof ImageData;
+    Path2D?: typeof Path2D;
+  };
+
+  if (!canvas.DOMMatrix || !canvas.DOMPoint || !canvas.DOMRect || !canvas.ImageData || !canvas.Path2D) {
+    throw new Error("PDF runtime is missing required canvas primitives.");
+  }
+
+  target.DOMMatrix ??= canvas.DOMMatrix;
+  target.DOMPoint ??= canvas.DOMPoint;
+  target.DOMRect ??= canvas.DOMRect;
+  target.ImageData ??= canvas.ImageData;
+  target.Path2D ??= canvas.Path2D;
 }
 
 export function getStatementPeriod(transactions: Transaction[]): StatementPeriod {

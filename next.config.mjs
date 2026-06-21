@@ -2,7 +2,7 @@
 const nextConfig = {
   typedRoutes: true,
   devIndicators: false,
-  serverExternalPackages: ["pdf-parse", "pdfjs-dist"]
+  serverExternalPackages: ["@napi-rs/canvas", "pdf-parse", "pdfjs-dist"]
 };
 
 export default nextConfig;
