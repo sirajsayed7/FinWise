@@ -141,8 +141,8 @@ const trendRows = [
 
 export default function FinWiseApp() {
   const [activeView, setActiveView] = useState<ActiveView>("home");
-  const [transactions, setTransactions] = useState<Transaction[]>(demoTransactions);
-  const [uploadStatus, setUploadStatus] = useState(`${demoTransactions.length} transactions`);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [uploadStatus, setUploadStatus] = useState("No uploads yet");
   const [latestPeriod, setLatestPeriod] = useState<StatementPeriodInfo | null>(null);
   const transactionCount = transactions.length;
 
@@ -152,8 +152,9 @@ export default function FinWiseApp() {
     try {
       const parsed = JSON.parse(saved) as Transaction[];
       if (Array.isArray(parsed) && parsed.length > 0) {
-        setTransactions(dedupe(parsed));
-        setUploadStatus(`${parsed.length} transactions`);
+        const clean = dedupe(sanitizeTransactions(parsed));
+        setTransactions(clean);
+        setUploadStatus(clean.length ? `${clean.length} transactions` : "No uploads yet");
       }
       const savedPeriod = window.localStorage.getItem("finwise.latestPeriod");
       if (savedPeriod) setLatestPeriod(JSON.parse(savedPeriod) as StatementPeriodInfo);
@@ -166,6 +167,14 @@ export default function FinWiseApp() {
   useEffect(() => {
     window.localStorage.setItem("finwise.transactions", JSON.stringify(transactions));
   }, [transactions]);
+
+  function clearUploads() {
+    setTransactions([]);
+    setLatestPeriod(null);
+    setUploadStatus("No uploads yet");
+    window.localStorage.removeItem("finwise.transactions");
+    window.localStorage.removeItem("finwise.latestPeriod");
+  }
 
   async function uploadStatement(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -184,7 +193,7 @@ export default function FinWiseApp() {
       response = await fetch("/api/statements", { method: "POST", body: formData });
       payload = await response.json();
     } catch {
-      setUploadStatus("Upload failed. Please try again with a CSV export.");
+      setUploadStatus("Upload failed. Please try again with a PDF, CSV, or Excel statement.");
       return;
     }
 
@@ -193,9 +202,9 @@ export default function FinWiseApp() {
       return;
     }
 
-    const imported = payload.transactions ?? [];
-    setTransactions((current) => (isDemoDataset(current) ? imported : dedupe([...imported, ...current])));
-    setUploadStatus(`${imported.length} transactions`);
+    const imported = sanitizeTransactions(payload.transactions ?? []);
+    setTransactions((current) => dedupe([...imported, ...current]));
+    setUploadStatus(`${imported.length} transactions imported`);
     if (payload.statement?.period) {
       setLatestPeriod(payload.statement.period);
       window.localStorage.setItem("finwise.latestPeriod", JSON.stringify(payload.statement.period));
@@ -209,11 +218,11 @@ export default function FinWiseApp() {
         {activeView === "home" ? (
           <HomeDashboard transactions={transactions} latestPeriod={latestPeriod} uploadStatus={uploadStatus} transactionCount={transactionCount} onUpload={uploadStatement} setActiveView={setActiveView} />
         ) : null}
-        {activeView === "transactions" ? <TransactionsPage transactions={transactions} setTransactions={setTransactions} setActiveView={setActiveView} /> : null}
-        {activeView === "upload" ? <UploadPage latestPeriod={latestPeriod} uploadStatus={uploadStatus} onUpload={uploadStatement} /> : null}
+        {activeView === "transactions" ? <TransactionsPage transactions={transactions} setTransactions={setTransactions} setActiveView={setActiveView} onClearUploads={clearUploads} /> : null}
+        {activeView === "upload" ? <UploadPage latestPeriod={latestPeriod} uploadStatus={uploadStatus} onUpload={uploadStatement} onClearUploads={clearUploads} hasUploads={transactionCount > 0} /> : null}
         {activeView === "insights" ? <InsightsPage transactions={transactions} /> : null}
         {activeView === "settings" ? <SettingsPage setActiveView={setActiveView} /> : null}
-        {activeView === "statements" ? <StatementsPage transactions={transactions} latestPeriod={latestPeriod} setActiveView={setActiveView} /> : null}
+        {activeView === "statements" ? <StatementsPage transactions={transactions} latestPeriod={latestPeriod} setActiveView={setActiveView} onClearUploads={clearUploads} /> : null}
       </div>
       <BottomNavigation activeView={activeView} setActiveView={setActiveView} />
     </main>
@@ -262,7 +271,7 @@ function TotalBalanceCard({ balance }: { balance: number }) {
             Total Balance
             <EyeIcon />
           </button>
-          <p className="mt-5 whitespace-nowrap text-[clamp(29px,7.5vw,42px)] font-extrabold leading-none tracking-[-0.055em]">{visible ? `QAR ${formatAmount(balance)}` : "QAR *******"}</p>
+          <p className="mt-5 whitespace-nowrap text-[clamp(27px,6.9vw,39px)] font-extrabold leading-none tracking-[-0.06em]">{visible ? `QAR ${formatDisplayAmount(balance)}` : "QAR *******"}</p>
           <p className="mt-4 text-[14px] font-semibold text-white/85">As of July 1, 2026</p>
         </div>
         <div className="grid h-14 w-14 shrink-0 place-items-center rounded-[17px] bg-white/15 backdrop-blur min-[391px]:h-16 min-[391px]:w-16">
@@ -276,9 +285,9 @@ function TotalBalanceCard({ balance }: { balance: number }) {
 function SummaryCards({ summary }: { summary: ReturnType<typeof getSummary> }) {
   return (
     <section className="mt-3.5 grid grid-cols-3 gap-1.5">
-      <SummaryCard icon={<ArrowDownIcon />} tone="green" title="Total Income" value={`QAR ${formatAmount(summary.income)}`} />
-      <SummaryCard icon={<ArrowUpIcon />} tone="red" title="Total Expenses" value={`QAR ${formatAmount(summary.expenses)}`} />
-      <SummaryCard icon={<WalletIcon />} tone="purple" title="Net Savings" value={`QAR ${formatAmount(summary.net)}`} />
+      <SummaryCard icon={<ArrowDownIcon />} tone="green" title="Total Income" value={`QAR ${formatDisplayAmount(summary.income)}`} />
+      <SummaryCard icon={<ArrowUpIcon />} tone="red" title="Total Expenses" value={`QAR ${formatDisplayAmount(summary.expenses)}`} />
+      <SummaryCard icon={<WalletIcon />} tone="purple" title="Net Savings" value={`QAR ${formatDisplayAmount(summary.net)}`} />
     </section>
   );
 }
@@ -365,7 +374,7 @@ function SpendingOverviewCard({ transactions, onOpenCategories }: { transactions
       </div>
 
       <div className="mt-4 space-y-1.5">
-        {rows.map((row) => (
+        {rows.length ? rows.map((row) => (
           <div key={row.label} className="grid min-h-[30px] grid-cols-[minmax(112px,1fr)_minmax(116px,132px)_46px] items-center gap-x-2 text-[13.5px] min-[391px]:grid-cols-[minmax(130px,1fr)_minmax(126px,142px)_48px] min-[391px]:text-[14.5px]">
             <div className="flex min-w-0 items-center gap-2">
               <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: row.color }} />
@@ -374,7 +383,11 @@ function SpendingOverviewCard({ transactions, onOpenCategories }: { transactions
             <span className="justify-self-center whitespace-nowrap font-medium text-[#111827]">QAR {formatAmount(row.amount)}</span>
             <span className="justify-self-end text-[13px] font-medium text-[#64708A] min-[391px]:text-[14px]">{row.percent}%</span>
           </div>
-        ))}
+        )) : (
+          <div className="rounded-[16px] bg-[#F8FAFC] px-4 py-5 text-center text-[13px] font-semibold text-[#64748B]">
+            Upload a statement to see your spending breakdown.
+          </div>
+        )}
       </div>
 
       <div className="mt-3 border-t border-[#E8ECF3] pt-1.5">
@@ -402,7 +415,7 @@ function TransactionsShortcut({ onOpen }: { onOpen: () => void }) {
   );
 }
 
-function TransactionsPage({ transactions, setTransactions, setActiveView }: { transactions: Transaction[]; setTransactions: (transactions: Transaction[] | ((current: Transaction[]) => Transaction[])) => void; setActiveView: (view: ActiveView) => void }) {
+function TransactionsPage({ transactions, setTransactions, setActiveView, onClearUploads }: { transactions: Transaction[]; setTransactions: (transactions: Transaction[] | ((current: Transaction[]) => Transaction[])) => void; setActiveView: (view: ActiveView) => void; onClearUploads: () => void }) {
   const [search, setSearch] = useState("");
   const [activeChip, setActiveChip] = useState("All");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ "June 2026": true, "May 2026": true, "April 2026": true });
@@ -490,11 +503,11 @@ function TransactionsPage({ transactions, setTransactions, setActiveView }: { tr
 
       <div className="mt-4 flex items-center justify-between px-1 text-[14px] font-extrabold text-[#5A36ED]">
         <button onClick={() => setActiveView("statements")} className="flex items-center gap-2"><OpenIcon />Manage statements</button>
-        <button onClick={() => setActiveView("statements")} className="flex items-center gap-1">View all statements<ChevronIcon /></button>
+        <button onClick={onClearUploads} className="flex items-center gap-1 text-red-500">Clear imports</button>
       </div>
 
       <div className="mt-3 grid gap-4">
-        {filteredGroups.map((group) => (
+        {filteredGroups.length ? filteredGroups.map((group) => (
           <section key={group.month} className="overflow-hidden rounded-[22px] bg-white shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
             <button onClick={() => setExpanded((current) => ({ ...current, [group.month]: !current[group.month] }))} className="flex w-full items-center justify-between px-4 py-3 text-left">
               <h2 className="text-[18px] font-extrabold tracking-[-0.02em] text-[#0F172A]">{group.month}</h2>
@@ -508,10 +521,15 @@ function TransactionsPage({ transactions, setTransactions, setActiveView }: { tr
               </div>
             ) : null}
           </section>
-        ))}
+        )) : (
+          <section className="rounded-[22px] bg-white px-5 py-8 text-center shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
+            <p className="text-[15px] font-extrabold text-[#0F172A]">No imported transactions</p>
+            <p className="mt-1 text-[13px] font-medium text-[#64748B]">Upload a bank statement to populate this page.</p>
+          </section>
+        )}
       </div>
 
-      <button onClick={() => setSheet("More transactions")} className="mt-4 h-12 w-full rounded-[16px] bg-white text-[14px] font-extrabold text-[#0F172A] shadow-[0_8px_22px_rgba(15,23,42,0.04)] ring-1 ring-[#E2E8F0]">Load more transactions</button>
+      {filteredGroups.length ? <button onClick={() => setSheet("More transactions")} className="mt-4 h-12 w-full rounded-[16px] bg-white text-[14px] font-extrabold text-[#0F172A] shadow-[0_8px_22px_rgba(15,23,42,0.04)] ring-1 ring-[#E2E8F0]">Load more transactions</button> : null}
       <BottomSheet title={sheet} onClose={() => setSheet(null)} />
       <CategoryCorrectionSheet
         transaction={editingTransaction}
@@ -563,7 +581,7 @@ function TransactionListRow({ row, onOpen, onActions }: { row: Transaction; onOp
   );
 }
 
-function UploadPage({ latestPeriod, uploadStatus, onUpload }: { latestPeriod: StatementPeriodInfo | null; uploadStatus: string; onUpload: (event: ChangeEvent<HTMLInputElement>) => void }) {
+function UploadPage({ latestPeriod, uploadStatus, onUpload, onClearUploads, hasUploads }: { latestPeriod: StatementPeriodInfo | null; uploadStatus: string; onUpload: (event: ChangeEvent<HTMLInputElement>) => void; onClearUploads: () => void; hasUploads: boolean }) {
   return (
     <section>
       <PageHeader title="Upload Statement" subtitle="Upload a PDF, CSV, or Excel statement to import your transactions." />
@@ -582,7 +600,9 @@ function UploadPage({ latestPeriod, uploadStatus, onUpload }: { latestPeriod: St
           <FieldPreview label="Currency" value="QAR" />
         </div>
         <p className="mt-4 rounded-[16px] bg-emerald-50 p-3 text-[13px] font-semibold leading-snug text-emerald-700">Privacy default: the original statement is deleted after processing. FinWise stores only extracted transaction data.</p>
-        <button className="mt-4 h-12 w-full rounded-[16px] bg-[#633EF2] text-[15px] font-extrabold text-white">Process Statement</button>
+        {hasUploads ? (
+          <button onClick={onClearUploads} className="mt-4 h-12 w-full rounded-[16px] bg-red-50 text-[15px] font-extrabold text-red-500 ring-1 ring-red-100">Clear imported data</button>
+        ) : null}
       </div>
       <StatusCard title="Processing status" body={uploadStatus} />
     </section>
@@ -717,16 +737,22 @@ function InsightsPage({ transactions }: { transactions: Transaction[] }) {
   );
 }
 
-function StatementsPage({ transactions, latestPeriod, setActiveView }: { transactions: Transaction[]; latestPeriod: StatementPeriodInfo | null; setActiveView: (view: ActiveView) => void }) {
+function StatementsPage({ transactions, latestPeriod, setActiveView, onClearUploads }: { transactions: Transaction[]; latestPeriod: StatementPeriodInfo | null; setActiveView: (view: ActiveView) => void; onClearUploads: () => void }) {
   const groups = useMemo(() => groupTransactionsByMonth(transactions), [transactions]);
   return (
     <section>
       <PageHeader title="Statements" subtitle="View uploaded statement history and processing results." actionLabel="Upload" onAction={() => setActiveView("upload")} />
       <div className="grid gap-4">
-        {groups.map((group) => (
+        {groups.length ? groups.map((group) => (
           <StatementHistoryCard key={group.month} month={group.month} bank={latestPeriod ? `${latestPeriod.label} · ${formatPeriodDates(latestPeriod)}` : "Imported statement"} imported={`${group.count} transactions`} review={`${group.rows.filter((row) => row.needsReview).length} need review`} />
-        ))}
+        )) : (
+          <section className="rounded-[22px] bg-white px-5 py-8 text-center shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
+            <p className="text-[15px] font-extrabold text-[#0F172A]">No statements imported</p>
+            <p className="mt-1 text-[13px] font-medium text-[#64748B]">Upload a bank statement to start your dashboard.</p>
+          </section>
+        )}
       </div>
+      {groups.length ? <button onClick={onClearUploads} className="mt-4 h-12 w-full rounded-[16px] bg-red-50 text-[15px] font-extrabold text-red-500 ring-1 ring-red-100">Clear all imported statements</button> : null}
     </section>
   );
 }
@@ -965,7 +991,7 @@ function getSpendingRows(transactions: Transaction[], period: SpendingPeriod): S
     .sort((left, right) => right.amount - left.amount)
     .slice(0, 5);
 
-  return spendingRows.length ? spendingRows : spendingByPeriod[period];
+  return spendingRows;
 }
 
 function getInsightCategories(transactions: Transaction[]) {
@@ -1068,9 +1094,19 @@ function saveMerchantRule(transaction: Transaction, category: Transaction["categ
 function dedupe(transactions: Transaction[]) {
   const seen = new Set<string>();
   return transactions.filter((transaction) => {
-    if (seen.has(transaction.duplicateHash)) return false;
-    seen.add(transaction.duplicateHash);
+    const key = transaction.duplicateHash || [transaction.date, transaction.descriptionRaw, transaction.amount, transaction.direction, transaction.bank].join("|");
+    if (seen.has(key)) return false;
+    seen.add(key);
     return true;
+  });
+}
+
+function sanitizeTransactions(transactions: Transaction[]) {
+  return transactions.filter((transaction) => {
+    const amountIsValid = Number.isFinite(transaction.amount) && transaction.amount >= 0 && transaction.amount < 1_000_000;
+    const dateIsValid = /^\d{4}-\d{2}-\d{2}$/.test(transaction.date);
+    const merchantIsValid = transaction.merchant.trim().length > 0;
+    return amountIsValid && dateIsValid && merchantIsValid;
   });
 }
 
@@ -1093,6 +1129,13 @@ function useAppViewportWidth() {
 
 function formatAmount(value: number) {
   return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatDisplayAmount(value: number) {
+  const absolute = Math.abs(value);
+  if (absolute >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(2)}B`;
+  if (absolute >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
+  return formatAmount(value);
 }
 
 function formatCompact(value: number) {
