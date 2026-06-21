@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, Tooltip, XAxis, YAxis } from "recharts";
+import type { User } from "@supabase/supabase-js";
 import { categories } from "@/lib/categorization";
 import { demoTransactions } from "@/lib/demo-data";
+import { getSupabase, isSupabaseConfigured } from "@/lib/supabase-client";
 import type { Transaction } from "@/lib/types";
 
 type ActiveView = "home" | "transactions" | "upload" | "insights" | "settings" | "statements";
@@ -21,6 +23,12 @@ type StatementPeriodInfo = {
   endDate: string | null;
   days: number;
   label: string;
+};
+
+type CloudUserData = {
+  transactions: Transaction[] | null;
+  latest_period: StatementPeriodInfo | null;
+  merchant_rules: Array<{ pattern: string; category: Transaction["category"] }> | null;
 };
 
 const spendingByPeriod: Record<SpendingPeriod, SpendingRow[]> = {
@@ -177,9 +185,14 @@ export default function FinWiseApp() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [uploadStatus, setUploadStatus] = useState("No uploads yet");
   const [latestPeriod, setLatestPeriod] = useState<StatementPeriodInfo | null>(null);
+  const [authReady, setAuthReady] = useState(!isSupabaseConfigured);
+  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [cloudLoaded, setCloudLoaded] = useState(!isSupabaseConfigured);
+  const [syncStatus, setSyncStatus] = useState(isSupabaseConfigured ? "Connect your account" : "Local mode");
   const transactionCount = transactions.length;
 
   useEffect(() => {
+    if (isSupabaseConfigured) return;
     const saved = window.localStorage.getItem("finwise.transactions");
     if (!saved) return;
     try {
@@ -198,8 +211,66 @@ export default function FinWiseApp() {
   }, []);
 
   useEffect(() => {
+    if (isSupabaseConfigured) return;
     window.localStorage.setItem("finwise.transactions", JSON.stringify(transactions));
   }, [transactions]);
+
+  useEffect(() => {
+    const supabase = getSupabase();
+    if (!supabase) return;
+
+    supabase.auth.getSession().then(({ data }) => {
+      setAuthUser(data.session?.user ?? null);
+      setAuthReady(true);
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthUser(session?.user ?? null);
+      setAuthReady(true);
+      setCloudLoaded(!session?.user);
+      if (!session?.user) {
+        setTransactions([]);
+        setLatestPeriod(null);
+        setUploadStatus("No uploads yet");
+        setSyncStatus("Signed out");
+      }
+    });
+
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !authUser) return;
+
+    let cancelled = false;
+    setSyncStatus("Loading account data...");
+    loadCloudData(authUser.id).then((data) => {
+      if (cancelled) return;
+      const clean = dedupe(sanitizeTransactions(data?.transactions ?? []));
+      const localRules = data?.merchant_rules ?? [];
+      setTransactions(clean);
+      setLatestPeriod(data?.latest_period ?? null);
+      setUploadStatus(clean.length ? `${clean.length} transactions` : "No uploads yet");
+      window.localStorage.setItem("finwise.merchantRules", JSON.stringify(localRules));
+      setCloudLoaded(true);
+      setSyncStatus(clean.length ? "Synced" : "Ready for first upload");
+    }).catch(() => {
+      if (cancelled) return;
+      setCloudLoaded(true);
+      setSyncStatus("Cloud sync unavailable");
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authUser]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !authUser || !cloudLoaded) return;
+    saveCloudData(authUser.id, transactions, latestPeriod).then((ok) => {
+      setSyncStatus(ok ? "Synced" : "Sync failed");
+    });
+  }, [transactions, latestPeriod, authUser, cloudLoaded]);
 
   function clearUploads() {
     setTransactions([]);
@@ -207,6 +278,11 @@ export default function FinWiseApp() {
     setUploadStatus("No uploads yet");
     window.localStorage.removeItem("finwise.transactions");
     window.localStorage.removeItem("finwise.latestPeriod");
+  }
+
+  async function signOut() {
+    const supabase = getSupabase();
+    await supabase?.auth.signOut();
   }
 
   async function uploadStatement(event: ChangeEvent<HTMLInputElement>) {
@@ -245,6 +321,14 @@ export default function FinWiseApp() {
     setActiveView("transactions");
   }
 
+  if (!authReady) {
+    return <LoadingScreen />;
+  }
+
+  if (isSupabaseConfigured && !authUser) {
+    return <AuthScreen />;
+  }
+
   return (
     <main className="min-h-screen bg-[#F8FAFC] text-[#111827]">
       <div className="mx-auto flex min-h-screen w-full max-w-[440px] flex-col bg-[#FAFBFF] px-4 pb-[calc(108px+env(safe-area-inset-bottom))] pt-[calc(14px+env(safe-area-inset-top))] min-[391px]:px-[18px] sm:my-5 sm:rounded-[34px] sm:border sm:border-white sm:shadow-2xl sm:shadow-slate-300/50">
@@ -254,10 +338,86 @@ export default function FinWiseApp() {
         {activeView === "transactions" ? <TransactionsPage transactions={transactions} setTransactions={setTransactions} setActiveView={setActiveView} onClearUploads={clearUploads} /> : null}
         {activeView === "upload" ? <UploadPage latestPeriod={latestPeriod} uploadStatus={uploadStatus} onUpload={uploadStatement} onClearUploads={clearUploads} hasUploads={transactionCount > 0} /> : null}
         {activeView === "insights" ? <InsightsPage transactions={transactions} /> : null}
-        {activeView === "settings" ? <SettingsPage setActiveView={setActiveView} /> : null}
+        {activeView === "settings" ? <SettingsPage setActiveView={setActiveView} authEmail={authUser?.email ?? null} syncStatus={syncStatus} onSignOut={signOut} /> : null}
         {activeView === "statements" ? <StatementsPage transactions={transactions} latestPeriod={latestPeriod} setActiveView={setActiveView} onClearUploads={clearUploads} /> : null}
       </div>
       <BottomNavigation activeView={activeView} setActiveView={setActiveView} />
+    </main>
+  );
+}
+
+function LoadingScreen() {
+  return (
+    <main className="grid min-h-screen place-items-center bg-[#F8FAFC] px-5 text-[#0F172A]">
+      <section className="w-full max-w-[420px] rounded-[28px] bg-white p-6 text-center shadow-[0_18px_44px_rgba(15,23,42,0.08)] ring-1 ring-[rgba(15,23,42,0.06)]">
+        <div className="mx-auto mb-4 flex items-center justify-center gap-2">
+          <LogoMark />
+          <span className="text-[24px] font-extrabold tracking-[-0.035em]">FinWise</span>
+        </div>
+        <p className="text-[14px] font-semibold text-[#64748B]">Loading your secure workspace...</p>
+      </section>
+    </main>
+  );
+}
+
+function AuthScreen() {
+  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submitAuth(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const supabase = getSupabase();
+    if (!supabase) return;
+    setBusy(true);
+    setStatus("");
+
+    const result = mode === "login"
+      ? await supabase.auth.signInWithPassword({ email, password })
+      : await supabase.auth.signUp({ email, password });
+
+    setBusy(false);
+    if (result.error) {
+      setStatus(result.error.message);
+      return;
+    }
+    setStatus(mode === "signup" ? "Account created. Check your email if confirmation is enabled." : "Signed in.");
+  }
+
+  return (
+    <main className="min-h-screen bg-[#F8FAFC] px-5 py-[calc(28px+env(safe-area-inset-top))] text-[#0F172A]">
+      <section className="mx-auto flex min-h-[calc(100vh-56px)] w-full max-w-[430px] flex-col justify-center">
+        <div className="mb-8 flex items-center gap-2.5">
+          <LogoMark />
+          <span className="text-[27px] font-extrabold tracking-[-0.04em]">FinWise</span>
+        </div>
+        <div className="rounded-[30px] bg-white p-6 shadow-[0_18px_44px_rgba(15,23,42,0.08)] ring-1 ring-[rgba(15,23,42,0.06)]">
+          <p className="text-[13px] font-extrabold uppercase tracking-[0.14em] text-[#6D35F5]">Secure finance dashboard</p>
+          <h1 className="mt-3 text-[32px] font-extrabold leading-tight tracking-[-0.055em]">Sign in to your account</h1>
+          <p className="mt-2 text-[14px] font-medium leading-relaxed text-[#64748B]">Each account has its own statements, transactions, merchant rules, and saved logos.</p>
+
+          <form onSubmit={submitAuth} className="mt-6 grid gap-3">
+            <label className="grid gap-1.5">
+              <span className="text-[12px] font-bold text-[#475569]">Email</span>
+              <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required className="h-12 rounded-[16px] bg-[#F8FAFC] px-4 text-[14px] font-semibold outline-none ring-1 ring-[#E2E8F0] focus:ring-[#6D35F5]" />
+            </label>
+            <label className="grid gap-1.5">
+              <span className="text-[12px] font-bold text-[#475569]">Password</span>
+              <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" required minLength={6} className="h-12 rounded-[16px] bg-[#F8FAFC] px-4 text-[14px] font-semibold outline-none ring-1 ring-[#E2E8F0] focus:ring-[#6D35F5]" />
+            </label>
+            {status ? <p className="rounded-[14px] bg-violet-50 p-3 text-[12px] font-semibold leading-relaxed text-[#5B21B6]">{status}</p> : null}
+            <button disabled={busy} className="mt-2 h-12 rounded-[16px] bg-[#6D35F5] text-[15px] font-extrabold text-white shadow-lg shadow-[#6D35F5]/20 disabled:opacity-60">
+              {busy ? "Please wait..." : mode === "login" ? "Log in" : "Create account"}
+            </button>
+          </form>
+
+          <button onClick={() => setMode(mode === "login" ? "signup" : "login")} className="mt-4 w-full text-center text-[13px] font-extrabold text-[#6D35F5]">
+            {mode === "login" ? "Create a new FinWise account" : "I already have an account"}
+          </button>
+        </div>
+      </section>
     </main>
   );
 }
@@ -794,11 +954,23 @@ function StatementsPage({ transactions, latestPeriod, setActiveView, onClearUplo
   );
 }
 
-function SettingsPage({ setActiveView }: { setActiveView: (view: ActiveView) => void }) {
+function SettingsPage({ setActiveView, authEmail, syncStatus, onSignOut }: { setActiveView: (view: ActiveView) => void; authEmail: string | null; syncStatus: string; onSignOut: () => void }) {
   return (
     <section>
       <PageHeader title="Settings" subtitle="Manage privacy, categories, rules, and exports." />
       <div className="grid gap-3.5">
+        <section className="rounded-[23px] bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
+          <h2 className="text-[17px] font-extrabold tracking-[-0.02em]">Account</h2>
+          <div className="mt-3 grid gap-2">
+            <FieldPreview label="Signed in as" value={authEmail ?? "Local mode"} />
+            <FieldPreview label="Sync" value={syncStatus} />
+          </div>
+          {isSupabaseConfigured ? (
+            <button onClick={onSignOut} className="mt-3 h-11 w-full rounded-[15px] bg-red-50 text-[14px] font-extrabold text-red-500 ring-1 ring-red-100">Sign out</button>
+          ) : (
+            <p className="mt-3 rounded-[14px] bg-amber-50 p-3 text-[12px] font-semibold leading-relaxed text-amber-700">Add Supabase environment variables to enable hosted accounts.</p>
+          )}
+        </section>
         <SettingsGroup title="Data & Privacy" items={["Original statements are deleted after processing", "Keep original statements: Off", "Export extracted transaction data"]} />
         <SettingsGroup title="Categories" items={["Manage category colors and icons", "Merchant rules", "Low-confidence review queue"]} />
         <button onClick={() => setActiveView("statements")} className="flex min-h-[56px] items-center justify-between rounded-[20px] bg-white px-4 text-left shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
@@ -1107,18 +1279,19 @@ function RecommendationDetail({ amount, saving, text }: { amount: number; saving
 }
 
 function MerchantLogo({ merchant, fallback }: { merchant: string; fallback: string }) {
-  const [logoUrl, setLogoUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [logoUrls, setLogoUrls] = useState<string[]>([]);
+  const [logoIndex, setLogoIndex] = useState(0);
 
   useEffect(() => {
-    const url = getMerchantLogoUrl(merchant);
-    setLogoUrl(url);
-    setFailed(false);
+    const urls = getMerchantLogoUrls(merchant);
+    setLogoUrls(urls);
+    setLogoIndex(0);
   }, [merchant]);
 
-  if (!logoUrl || failed) return <span>{fallback}</span>;
+  const logoUrl = logoUrls[logoIndex];
+  if (!logoUrl) return <span>{fallback}</span>;
 
-  return <img src={logoUrl} alt="" className="h-full w-full rounded-full object-cover" loading="lazy" onError={() => setFailed(true)} />;
+  return <img src={logoUrl} alt="" className="h-full w-full rounded-full object-cover" loading="lazy" onError={() => setLogoIndex((current) => current + 1)} />;
 }
 
 function MiniMetric({ label, value, tone = "slate" }: { label: string; value: string; tone?: "slate" | "red" | "green" }) {
@@ -1385,6 +1558,41 @@ function formatPeriodDates(period: StatementPeriodInfo) {
   return `${period.startDate} to ${period.endDate}`;
 }
 
+async function loadCloudData(userId: string) {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from("finwise_user_data")
+    .select("transactions,latest_period,merchant_rules")
+    .eq("user_id", userId)
+    .maybeSingle<CloudUserData>();
+
+  if (error) throw error;
+  return data;
+}
+
+async function saveCloudData(userId: string, transactions: Transaction[], latestPeriod: StatementPeriodInfo | null) {
+  const supabase = getSupabase();
+  if (!supabase) return false;
+
+  let merchantRules: unknown[] = [];
+  try {
+    merchantRules = JSON.parse(window.localStorage.getItem("finwise.merchantRules") ?? "[]") as unknown[];
+  } catch {
+    merchantRules = [];
+  }
+
+  const { error } = await supabase.from("finwise_user_data").upsert({
+    user_id: userId,
+    transactions,
+    latest_period: latestPeriod,
+    merchant_rules: merchantRules
+  });
+
+  return !error;
+}
+
 function saveMerchantRule(transaction: Transaction, category: Transaction["category"]) {
   const pattern = transaction.merchant.toLowerCase().trim();
   if (!pattern) return;
@@ -1454,27 +1662,30 @@ function toTitle(value: string) {
   return value.toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function getMerchantLogoUrl(merchant: string) {
+function getMerchantLogoUrls(merchant: string) {
   const normalized = merchant.toLowerCase();
   const key = `finwise.logo.${normalized.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
 
   try {
     const cached = window.localStorage.getItem(key);
-    if (cached) return cached;
+    if (cached) return JSON.parse(cached) as string[];
   } catch {
     // Ignore storage failures; logo fallback still works.
   }
 
   const match = merchantLogoDomains.find((item) => item.keywords.some((keyword) => normalized.includes(keyword)));
-  if (!match) return null;
+  if (!match) return [];
 
-  const url = `https://www.google.com/s2/favicons?domain=${match.domain}&sz=96`;
+  const urls = [
+    `https://logo.clearbit.com/${match.domain}`,
+    `https://www.google.com/s2/favicons?domain=${match.domain}&sz=128`
+  ];
   try {
-    window.localStorage.setItem(key, url);
+    window.localStorage.setItem(key, JSON.stringify(urls));
   } catch {
     // Ignore storage failures; image can still load for this session.
   }
-  return url;
+  return urls;
 }
 
 function makeConicGradient(rows: SpendingRow[]) {

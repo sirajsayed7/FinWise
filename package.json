@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@napi-rs/canvas": "^1.0.0",
+    "@supabase/supabase-js": "^2.108.2",
     "@types/papaparse": "^5.5.2",
     "@vercel/blob": "^0.27.3",
     "clsx": "^2.1.1",
