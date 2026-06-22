@@ -2,15 +2,19 @@
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
+import * as Dialog from "@radix-ui/react-dialog";
+import { AnimatePresence, motion } from "framer-motion";
 import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, Tooltip, XAxis, YAxis } from "recharts";
 import type { User } from "@supabase/supabase-js";
 import { useForm } from "react-hook-form";
+import { toast } from "sonner";
 import { z } from "zod";
 import { categories } from "@/lib/categorization";
 import { demoTransactions } from "@/lib/demo-data";
 import { loadFinWiseData, saveFinWiseData, loadMerchantLogoOverrides, saveMerchantLogoOverrides } from "@/lib/finwise-db";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase-client";
 import type { MerchantLogoRecord, MerchantRule, Transaction } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 type ActiveView = "home" | "transactions" | "upload" | "insights" | "settings" | "statements";
 type SpendingPeriod = "This Month" | "Last Month" | "Year";
@@ -351,6 +355,9 @@ export default function FinWiseApp() {
     window.localStorage.removeItem("finwise.transactions");
     window.localStorage.removeItem("finwise.latestPeriod");
     if (authUser) window.localStorage.removeItem(getLocalSnapshotKey(authUser.id));
+    toast.success("Imported data cleared", {
+      description: "Your dashboard is ready for a fresh statement."
+    });
   }
 
   function clearStatement(statementId: string) {
@@ -362,6 +369,9 @@ export default function FinWiseApp() {
     if (nextLatest) window.localStorage.setItem("finwise.latestPeriod", JSON.stringify(nextLatest));
     else window.localStorage.removeItem("finwise.latestPeriod");
     setUploadStatus(nextTransactions.length ? `${nextTransactions.length} transactions` : "No uploads yet");
+    toast.success("Statement removed", {
+      description: nextTransactions.length ? `${nextTransactions.length} transactions remain.` : "No imported transactions remain."
+    });
   }
 
   async function signOut() {
@@ -398,11 +408,17 @@ export default function FinWiseApp() {
       payload = await response.json();
     } catch {
       setUploadStatus("Upload failed. Please try again with a PDF, CSV, or Excel statement.");
+      toast.error("Upload failed", {
+        description: "Please try again with a PDF, CSV, or Excel statement."
+      });
       return;
     }
 
     if (!response.ok) {
       setUploadStatus(payload.error ?? "Upload failed");
+      toast.error("Upload failed", {
+        description: payload.error ?? "The statement could not be processed."
+      });
       return;
     }
 
@@ -410,6 +426,9 @@ export default function FinWiseApp() {
     const statementId = payload.statement?.id ?? imported[0]?.statementId;
     if (!imported.length) {
       setUploadStatus("No usable transactions found after filtering balances and summary rows.");
+      toast.warning("No transactions found", {
+        description: "FinWise filtered out balances and summary rows, but found no usable transactions."
+      });
       event.target.value = "";
       return;
     }
@@ -421,6 +440,9 @@ export default function FinWiseApp() {
     });
     const duplicateExists = Boolean(statementId && transactions.some((transaction) => transaction.statementId === statementId));
     setUploadStatus(duplicateExists ? `${imported.length} transactions ready. Confirm to replace the existing statement.` : `${imported.length} transactions ready for review`);
+    toast.success("Statement ready for review", {
+      description: `${imported.length} transactions detected.`
+    });
     event.target.value = "";
     setActiveView("upload");
   }
@@ -442,6 +464,9 @@ export default function FinWiseApp() {
       return nextTransactions;
     });
     setUploadStatus(`${imported.length} transactions saved`);
+    toast.success("Import saved", {
+      description: `${imported.length} transactions were added to your dashboard.`
+    });
     if (pendingImport.period) {
       setLatestPeriod(pendingImport.period);
       window.localStorage.setItem("finwise.latestPeriod", JSON.stringify(pendingImport.period));
@@ -1408,45 +1433,94 @@ function InsightPanel({ title, aside, children }: { title: string; aside?: React
 }
 
 function CategoryCorrectionSheet({ transaction, onClose, onSave }: { transaction: Transaction | null; onClose: () => void; onSave: (category: Transaction["category"]) => void }) {
-  if (!transaction) return null;
-
   return (
-    <div className="fixed inset-0 z-20 flex items-end justify-center bg-slate-950/25 px-4 pb-[calc(14px+env(safe-area-inset-bottom))]" onClick={onClose}>
-      <section onClick={(event) => event.stopPropagation()} className="w-full max-w-[430px] rounded-[24px] bg-white p-5 shadow-2xl">
-        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-slate-200" />
-        <h2 className="text-[20px] font-extrabold tracking-[-0.03em] text-[#0F172A]">Correct category</h2>
-        <p className="mt-1 text-[13px] font-medium text-[#64748B]">{transaction.merchant}</p>
-        <div className="mt-4 grid max-h-[320px] grid-cols-2 gap-2 overflow-y-auto pr-1">
-          {categories.map((category) => (
-            <button
-              key={category}
-              onClick={() => onSave(category)}
-              className={category === transaction.category ? "min-h-10 rounded-[14px] bg-[#6D35F5] px-3 text-[12px] font-extrabold text-white" : "min-h-10 rounded-[14px] bg-[#F8FAFC] px-3 text-[12px] font-bold text-[#334155] ring-1 ring-[#E2E8F0]"}
-            >
-              {category}
-            </button>
-          ))}
-        </div>
-        <p className="mt-4 rounded-[14px] bg-emerald-50 p-3 text-[12px] font-semibold leading-snug text-emerald-700">Saving a correction also saves a merchant rule, so future uploads classify this merchant automatically.</p>
-      </section>
-    </div>
+    <Dialog.Root open={Boolean(transaction)} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <AnimatePresence>
+        {transaction ? (
+          <Dialog.Portal forceMount>
+            <Dialog.Overlay asChild>
+              <motion.div
+                className="fixed inset-0 z-20 bg-slate-950/25 backdrop-blur-[2px]"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.16 }}
+              />
+            </Dialog.Overlay>
+            <Dialog.Content asChild>
+              <motion.section
+                className="fixed inset-x-0 bottom-0 z-30 mx-auto w-full max-w-[430px] rounded-t-[28px] bg-white p-5 pb-[calc(18px+env(safe-area-inset-bottom))] shadow-2xl outline-none"
+                initial={{ y: 36, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: 36, opacity: 0 }}
+                transition={{ type: "spring", stiffness: 360, damping: 34 }}
+              >
+                <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-slate-200" />
+                <Dialog.Title className="text-[20px] font-extrabold tracking-[-0.03em] text-[#0F172A]">Correct category</Dialog.Title>
+                <Dialog.Description className="mt-1 text-[13px] font-medium text-[#64748B]">{transaction.merchant}</Dialog.Description>
+                <div className="mt-4 grid max-h-[320px] grid-cols-2 gap-2 overflow-y-auto pr-1">
+                  {categories.map((category) => (
+                    <button
+                      key={category}
+                      onClick={() => onSave(category)}
+                      className={cn(
+                        "min-h-10 rounded-[14px] px-3 text-[12px] font-extrabold transition active:scale-[0.98]",
+                        category === transaction.category
+                          ? "bg-[#6D35F5] text-white shadow-lg shadow-[#6D35F5]/20"
+                          : "bg-[#F8FAFC] text-[#334155] ring-1 ring-[#E2E8F0]"
+                      )}
+                    >
+                      {category}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-4 rounded-[14px] bg-emerald-50 p-3 text-[12px] font-semibold leading-snug text-emerald-700">Saving a correction also saves a merchant rule, so future uploads classify this merchant automatically.</p>
+              </motion.section>
+            </Dialog.Content>
+          </Dialog.Portal>
+        ) : null}
+      </AnimatePresence>
+    </Dialog.Root>
   );
 }
 
 function BottomSheet({ title, transactions, onClose }: { title: string | null; transactions: Transaction[]; onClose: () => void }) {
-  if (!title) return null;
-
   return (
-    <div className="fixed inset-0 z-20 flex items-end justify-center bg-slate-950/25 px-4 pb-[calc(14px+env(safe-area-inset-bottom))]" onClick={onClose}>
-      <section onClick={(event) => event.stopPropagation()} className="max-h-[82vh] w-full max-w-[430px] overflow-hidden rounded-[24px] bg-white p-5 shadow-2xl">
-        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-slate-200" />
-        <h2 className="text-[20px] font-extrabold tracking-[-0.03em] text-[#0F172A]">{title}</h2>
-        <div className="mt-4 max-h-[58vh] overflow-y-auto pr-1">
-          <SheetContent title={title} transactions={transactions} />
-        </div>
-        <button onClick={onClose} className="mt-5 h-12 w-full rounded-[16px] bg-[#6D35F5] text-[15px] font-extrabold text-white">Done</button>
-      </section>
-    </div>
+    <Dialog.Root open={Boolean(title)} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <AnimatePresence>
+        {title ? (
+          <Dialog.Portal forceMount>
+            <Dialog.Overlay asChild>
+              <motion.div
+                className="fixed inset-0 z-20 bg-slate-950/25 backdrop-blur-[2px]"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.16 }}
+              />
+            </Dialog.Overlay>
+            <Dialog.Content asChild>
+              <motion.section
+                className="fixed inset-x-0 bottom-0 z-30 mx-auto max-h-[84vh] w-full max-w-[430px] overflow-hidden rounded-t-[28px] bg-white p-5 pb-[calc(18px+env(safe-area-inset-bottom))] shadow-2xl outline-none"
+                initial={{ y: 36, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: 36, opacity: 0 }}
+                transition={{ type: "spring", stiffness: 360, damping: 34 }}
+              >
+                <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-slate-200" />
+                <Dialog.Title className="text-[20px] font-extrabold tracking-[-0.03em] text-[#0F172A]">{title}</Dialog.Title>
+                <div className="mt-4 max-h-[58vh] overflow-y-auto pr-1">
+                  <SheetContent title={title} transactions={transactions} />
+                </div>
+                <Dialog.Close asChild>
+                  <button className="mt-5 h-12 w-full rounded-[16px] bg-[#6D35F5] text-[15px] font-extrabold text-white shadow-lg shadow-[#6D35F5]/20 transition active:scale-[0.99]">Done</button>
+                </Dialog.Close>
+              </motion.section>
+            </Dialog.Content>
+          </Dialog.Portal>
+        ) : null}
+      </AnimatePresence>
+    </Dialog.Root>
   );
 }
 
