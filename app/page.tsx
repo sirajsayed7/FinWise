@@ -376,7 +376,13 @@ function AuthScreen() {
 
     const result = mode === "login"
       ? await supabase.auth.signInWithPassword({ email, password })
-      : await supabase.auth.signUp({ email, password });
+      : await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            emailRedirectTo: window.location.origin
+          }
+        });
 
     setBusy(false);
     if (result.error) {
@@ -395,7 +401,7 @@ function AuthScreen() {
         </div>
         <div className="rounded-[30px] bg-white p-6 shadow-[0_18px_44px_rgba(15,23,42,0.08)] ring-1 ring-[rgba(15,23,42,0.06)]">
           <p className="text-[13px] font-extrabold uppercase tracking-[0.14em] text-[#6D35F5]">Secure finance dashboard</p>
-          <h1 className="mt-3 text-[32px] font-extrabold leading-tight tracking-[-0.055em]">Sign in to your account</h1>
+          <h1 className="mt-3 text-[32px] font-extrabold leading-tight tracking-[-0.055em]">{mode === "login" ? "Sign in to your account" : "Sign up for FinWise"}</h1>
           <p className="mt-2 text-[14px] font-medium leading-relaxed text-[#64748B]">Each account has its own statements, transactions, merchant rules, and saved logos.</p>
 
           <form onSubmit={submitAuth} className="mt-6 grid gap-3">
