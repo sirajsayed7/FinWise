@@ -1074,7 +1074,7 @@ function ImportReviewCard({ pendingImport, onConfirm, onCancel, onRemove, onUpda
   const reviewCount = pendingImport.transactions.filter((transaction) => transaction.needsReview).length;
 
   return (
-    <section className="mt-4 rounded-[24px] bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
+    <section className="mt-4 w-full max-w-full overflow-hidden rounded-[24px] bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[12px] font-extrabold uppercase tracking-[0.12em] text-[#6D35F5]">Review before saving</p>
@@ -1090,10 +1090,10 @@ function ImportReviewCard({ pendingImport, onConfirm, onCancel, onRemove, onUpda
         <MiniMetric label="Net" value={`QAR ${formatDisplayAmount(summary.balance)}`} />
       </div>
 
-      <div className="mt-3 max-h-[440px] overflow-y-auto rounded-[18px] bg-[#F8FAFC] p-2 ring-1 ring-[#E2E8F0]">
-        <div className="grid gap-2">
+      <div className="mt-3 max-h-[390px] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-[18px] bg-[#F8FAFC] p-2 ring-1 ring-[#E2E8F0]">
+        <div className="grid min-w-0 gap-2">
           {pendingImport.transactions.map((transaction, index) => (
-            <article key={transaction.id} className="rounded-[16px] bg-white p-3 shadow-[0_8px_18px_rgba(15,23,42,0.035)] ring-1 ring-[rgba(15,23,42,0.055)]">
+            <article key={transaction.id} className="min-w-0 overflow-hidden rounded-[16px] bg-white p-3 shadow-[0_8px_18px_rgba(15,23,42,0.035)] ring-1 ring-[rgba(15,23,42,0.055)]">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <div className="flex min-w-0 items-center gap-2">
                   <span className={`grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full text-[12px] font-extrabold ${categoryAvatarStyles[transaction.category] ?? categoryAvatarStyles.Other}`}>
@@ -1108,28 +1108,28 @@ function ImportReviewCard({ pendingImport, onConfirm, onCancel, onRemove, onUpda
                   x
                 </button>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <label className="grid gap-1">
+              <div className="grid min-w-0 grid-cols-2 gap-2">
+                <label className="grid min-w-0 gap-1">
                   <span className="text-[10px] font-extrabold uppercase tracking-[0.08em] text-[#94A3B8]">Date</span>
-                  <input type="date" value={transaction.date} onChange={(event) => onUpdate(transaction.id, { date: event.target.value })} className="h-10 rounded-[12px] bg-[#F8FAFC] px-3 text-[12px] font-bold text-[#0F172A] outline-none ring-1 ring-[#E2E8F0] focus:ring-[#6D35F5]" />
+                  <input inputMode="numeric" value={transaction.date} onChange={(event) => onUpdate(transaction.id, { date: event.target.value })} className="h-10 w-full min-w-0 rounded-[12px] bg-[#F8FAFC] px-3 text-[12px] font-bold text-[#0F172A] outline-none ring-1 ring-[#E2E8F0] focus:ring-[#6D35F5]" />
                 </label>
-                <label className="grid gap-1">
+                <label className="grid min-w-0 gap-1">
                   <span className="text-[10px] font-extrabold uppercase tracking-[0.08em] text-[#94A3B8]">Amount</span>
-                  <input type="number" min="0" step="0.01" value={transaction.amount} onChange={(event) => onUpdate(transaction.id, { amount: Number(event.target.value) })} className="h-10 rounded-[12px] bg-[#F8FAFC] px-3 text-[12px] font-bold text-[#0F172A] outline-none ring-1 ring-[#E2E8F0] focus:ring-[#6D35F5]" />
+                  <input type="number" min="0" step="0.01" value={transaction.amount} onChange={(event) => onUpdate(transaction.id, { amount: Number(event.target.value) })} className="h-10 w-full min-w-0 rounded-[12px] bg-[#F8FAFC] px-3 text-[12px] font-bold text-[#0F172A] outline-none ring-1 ring-[#E2E8F0] focus:ring-[#6D35F5]" />
                 </label>
-                <label className="col-span-2 grid gap-1">
+                <label className="col-span-2 grid min-w-0 gap-1">
                   <span className="text-[10px] font-extrabold uppercase tracking-[0.08em] text-[#94A3B8]">Merchant</span>
-                  <input value={transaction.merchant} onChange={(event) => onUpdate(transaction.id, { merchant: event.target.value })} className="h-10 rounded-[12px] bg-[#F8FAFC] px-3 text-[12px] font-bold text-[#0F172A] outline-none ring-1 ring-[#E2E8F0] focus:ring-[#6D35F5]" />
+                  <input value={transaction.merchant} onChange={(event) => onUpdate(transaction.id, { merchant: event.target.value })} className="h-10 w-full min-w-0 rounded-[12px] bg-[#F8FAFC] px-3 text-[12px] font-bold text-[#0F172A] outline-none ring-1 ring-[#E2E8F0] focus:ring-[#6D35F5]" />
                 </label>
-                <label className="grid gap-1">
+                <label className="grid min-w-0 gap-1">
                   <span className="text-[10px] font-extrabold uppercase tracking-[0.08em] text-[#94A3B8]">Category</span>
-                  <select value={transaction.category} onChange={(event) => onUpdate(transaction.id, { category: event.target.value as Transaction["category"] })} className="h-10 rounded-[12px] bg-[#F8FAFC] px-3 text-[12px] font-bold text-[#0F172A] outline-none ring-1 ring-[#E2E8F0] focus:ring-[#6D35F5]">
+                  <select value={transaction.category} onChange={(event) => onUpdate(transaction.id, { category: event.target.value as Transaction["category"] })} className="h-10 w-full min-w-0 rounded-[12px] bg-[#F8FAFC] px-3 text-[12px] font-bold text-[#0F172A] outline-none ring-1 ring-[#E2E8F0] focus:ring-[#6D35F5]">
                     {categories.map((category) => <option key={category} value={category}>{category}</option>)}
                   </select>
                 </label>
-                <label className="grid gap-1">
+                <label className="grid min-w-0 gap-1">
                   <span className="text-[10px] font-extrabold uppercase tracking-[0.08em] text-[#94A3B8]">Type</span>
-                  <select value={transaction.direction} onChange={(event) => onUpdate(transaction.id, { direction: event.target.value as Transaction["direction"] })} className="h-10 rounded-[12px] bg-[#F8FAFC] px-3 text-[12px] font-bold text-[#0F172A] outline-none ring-1 ring-[#E2E8F0] focus:ring-[#6D35F5]">
+                  <select value={transaction.direction} onChange={(event) => onUpdate(transaction.id, { direction: event.target.value as Transaction["direction"] })} className="h-10 w-full min-w-0 rounded-[12px] bg-[#F8FAFC] px-3 text-[12px] font-bold text-[#0F172A] outline-none ring-1 ring-[#E2E8F0] focus:ring-[#6D35F5]">
                     <option value="expense">Expense</option>
                     <option value="income">Income</option>
                   </select>
