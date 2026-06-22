@@ -19,14 +19,15 @@ const schema = {
 } as const;
 
 export async function categorizeUnknownTransactions(transactions: Transaction[]) {
+  const locallyReviewed = transactions.map(enhanceLocalReviewState);
   if (!process.env.OPENAI_API_KEY) {
-    return transactions;
+    return locallyReviewed;
   }
 
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
   const classified = await Promise.all(
-    transactions.map(async (transaction) => {
+    locallyReviewed.map(async (transaction) => {
       if (transaction.category !== "Other" && transaction.confidence >= reviewThreshold) {
         return transaction;
       }
@@ -55,6 +56,22 @@ export async function categorizeUnknownTransactions(transactions: Transaction[])
   );
 
   return classified;
+}
+
+function enhanceLocalReviewState(transaction: Transaction): Transaction {
+  const merchantLooksMessy =
+    transaction.merchant.length < 3 ||
+    /\b(unknown|payment|purchase|transaction|pos|card)\b/i.test(transaction.merchant) ||
+    /\d{5,}/.test(transaction.merchant);
+  const needsReview = transaction.needsReview || transaction.confidence < reviewThreshold || transaction.category === "Other" || merchantLooksMessy;
+
+  return {
+    ...transaction,
+    needsReview,
+    reason: needsReview && !transaction.reason.toLowerCase().includes("review")
+      ? `${transaction.reason} Marked for review by local confidence checks.`
+      : transaction.reason
+  };
 }
 
 async function classifyTransaction(openai: OpenAI, transaction: Transaction): Promise<CategorizationResult> {

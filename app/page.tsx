@@ -663,6 +663,8 @@ function TransactionsPage({ transactions, setTransactions, setActiveView, onClea
   const groups = useMemo(() => groupTransactionsByMonth(transactions), [transactions]);
   const statements = useMemo(() => getStatementSummaries(transactions, null), [transactions]);
   const summary = useMemo(() => getSummary(transactions), [transactions]);
+  const reviewRows = useMemo(() => getReviewRows(transactions), [transactions]);
+  const reviewStats = useMemo(() => getReviewStats(transactions), [transactions]);
 
   const filteredGroups = groups.map((group) => ({
     ...group,
@@ -670,11 +672,12 @@ function TransactionsPage({ transactions, setTransactions, setActiveView, onClea
       const haystack = `${row.merchant} ${row.descriptionRaw} ${row.category} ${row.bank}`.toLowerCase();
       const matchesSearch = haystack.includes(search.toLowerCase());
       const matchesChip =
-        activeChip === "All" ||
-        (activeChip === "Expenses" && row.direction === "expense") ||
-        (activeChip === "Income" && row.direction === "income") ||
-        (activeChip === "Transfers" && row.category === "Bank Transfer") ||
-        row.category === activeChip;
+          activeChip === "All" ||
+          (activeChip === "Expenses" && row.direction === "expense") ||
+          (activeChip === "Income" && row.direction === "income") ||
+          (activeChip === "Needs Review" && isReviewTransaction(row)) ||
+          (activeChip === "Transfers" && row.category === "Bank Transfer") ||
+          row.category === activeChip;
       return matchesSearch && matchesChip;
     })
   })).filter((group) => group.rows.length > 0);
@@ -714,7 +717,7 @@ function TransactionsPage({ transactions, setTransactions, setActiveView, onClea
 
       <div className="-mx-4 mt-3 overflow-x-auto px-4 pb-1 scrollbar-thin">
         <div className="flex min-w-max gap-2">
-          {["All", "Expenses", "Income", "Transfers", "Groceries", "Ordering Out"].map((chip) => (
+            {["All", "Needs Review", "Expenses", "Income", "Transfers", "Groceries", "Ordering Out"].map((chip) => (
             <button key={chip} onClick={() => setActiveChip(chip)} className={chip === activeChip ? "h-10 rounded-[14px] bg-[#6D35F5] px-4 text-[13px] font-extrabold text-white shadow-lg shadow-[#6D35F5]/20" : "h-10 rounded-[14px] bg-white px-4 text-[13px] font-bold text-[#334155] shadow-sm ring-1 ring-[#E8ECF3]"}>
               {chip}
             </button>
@@ -734,12 +737,31 @@ function TransactionsPage({ transactions, setTransactions, setActiveView, onClea
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-2.5">
-        <MetricCard label="Transactions" value={transactions.length.toLocaleString("en-US")} helper="All time" />
-        <MetricCard label="Total Spent" value={`QAR ${formatAmount(summary.expenses)}`} helper="All time" tone="red" />
-        <MetricCard label="Total Income" value={`QAR ${formatAmount(summary.income)}`} helper="All time" tone="green" />
-        <MetricCard label="Statements" value={statements.length.toString()} helper="Processed" tone="purple" />
-      </div>
+        <div className="mt-4 grid grid-cols-2 gap-2.5">
+          <MetricCard label="Transactions" value={transactions.length.toLocaleString("en-US")} helper="All time" />
+          <MetricCard label="Total Spent" value={`QAR ${formatAmount(summary.expenses)}`} helper="All time" tone="red" />
+          <MetricCard label="Total Income" value={`QAR ${formatAmount(summary.income)}`} helper="All time" tone="green" />
+          <MetricCard label="Statements" value={statements.length.toString()} helper="Processed" tone="purple" />
+          <MetricCard label="Needs Review" value={reviewStats.needsReview.toString()} helper={`${reviewStats.categorizedPercent}% categorized`} tone={reviewStats.needsReview ? "red" : "green"} />
+          <MetricCard label="Rules" value={reviewStats.ruleCount.toString()} helper="Saved locally" tone="purple" />
+        </div>
+
+        {reviewRows.length ? (
+          <section className="mt-4 rounded-[22px] bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-[18px] font-extrabold tracking-[-0.02em] text-[#0F172A]">Review Queue</h2>
+                <p className="mt-0.5 text-[12.5px] font-semibold text-[#64748B]">Correct these once. FinWise will learn the merchant rule.</p>
+              </div>
+              <button onClick={() => setActiveChip("Needs Review")} className="rounded-full bg-amber-50 px-3 py-1.5 text-[12px] font-extrabold text-amber-600">{reviewRows.length}</button>
+            </div>
+            <div className="mt-3 divide-y divide-[#EEF2F7]">
+              {reviewRows.slice(0, 4).map((row) => (
+                <ReviewQueueRow key={row.id} row={row} onCorrect={() => setEditingTransaction(row)} />
+              ))}
+            </div>
+          </section>
+        ) : null}
 
       <div className="mt-4 flex items-center justify-between px-1 text-[14px] font-extrabold text-[#5A36ED]">
         <button onClick={() => setActiveView("statements")} className="flex items-center gap-2"><OpenIcon />Manage statements</button>
@@ -776,13 +798,13 @@ function TransactionsPage({ transactions, setTransactions, setActiveView, onClea
         onClose={() => setEditingTransaction(null)}
         onSave={(category) => {
           if (!editingTransaction) return;
-          saveMerchantRule(editingTransaction, category);
-          setTransactions((current) =>
-            current.map((row) =>
-              row.id === editingTransaction.id
-                ? {
-                    ...row,
-                    category,
+            saveMerchantRule(editingTransaction, category);
+            setTransactions((current) =>
+              current.map((row) =>
+                shouldApplyMerchantCorrection(row, editingTransaction)
+                  ? {
+                      ...row,
+                      category,
                     subcategory: category,
                     confidence: 1,
                     needsReview: false,
@@ -820,6 +842,21 @@ function TransactionListRow({ row, onOpen, onActions }: { row: Transaction; onOp
       </button>
       <button onClick={onActions} aria-label="Transaction actions" className="text-[#64748B]"><DotsIcon /></button>
     </div>
+  );
+}
+
+function ReviewQueueRow({ row, onCorrect }: { row: Transaction; onCorrect: () => void }) {
+  return (
+    <button onClick={onCorrect} className="flex w-full items-center gap-3 py-2.5 text-left">
+      <span className={`grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full text-[14px] font-extrabold ${categoryAvatarStyles[row.category] ?? categoryAvatarStyles.Other}`}>
+        <MerchantLogo merchant={row.merchant} fallback={row.merchant.slice(0, 1) || "?"} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13.5px] font-extrabold text-[#0F172A]">{row.merchant}</span>
+        <span className="mt-0.5 block truncate text-[11.5px] font-semibold text-[#64748B]">{row.category} · {Math.round(row.confidence * 100)}% confidence</span>
+      </span>
+      <span className="rounded-full bg-[#6D35F5] px-3 py-1.5 text-[12px] font-extrabold text-white">Fix</span>
+    </button>
   );
 }
 
@@ -1522,6 +1559,44 @@ function getSummary(transactions: Transaction[]) {
   };
 }
 
+function getReviewRows(transactions: Transaction[]) {
+  return transactions
+    .filter(isReviewTransaction)
+    .sort((left, right) => left.confidence - right.confidence || right.date.localeCompare(left.date));
+}
+
+function getReviewStats(transactions: Transaction[]) {
+  const needsReview = getReviewRows(transactions).length;
+  const categorized = transactions.filter((transaction) => transaction.category !== "Other" && !isReviewTransaction(transaction)).length;
+  let ruleCount = 0;
+  try {
+    ruleCount = typeof window === "undefined" ? 0 : (JSON.parse(window.localStorage.getItem("finwise.merchantRules") ?? "[]") as unknown[]).length;
+  } catch {
+    ruleCount = 0;
+  }
+  return {
+    needsReview,
+    categorizedPercent: transactions.length ? Math.round((categorized / transactions.length) * 100) : 0,
+    ruleCount
+  };
+}
+
+function isReviewTransaction(transaction: Transaction) {
+  const merchantLooksMessy = transaction.merchant.length < 3 || /\b(unknown|payment|purchase|transaction|pos|card)\b/i.test(transaction.merchant) || /\d{5,}/.test(transaction.merchant);
+  return transaction.needsReview || transaction.confidence < 0.75 || transaction.category === "Other" || merchantLooksMessy;
+}
+
+function shouldApplyMerchantCorrection(row: Transaction, edited: Transaction) {
+  const rowMerchant = normalizeMerchantKey(row.merchant);
+  const editedMerchant = normalizeMerchantKey(edited.merchant);
+  if (!rowMerchant || !editedMerchant) return row.id === edited.id;
+  return row.id === edited.id || rowMerchant === editedMerchant || rowMerchant.includes(editedMerchant) || editedMerchant.includes(rowMerchant);
+}
+
+function normalizeMerchantKey(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
 function getSpendingRows(transactions: Transaction[], period: SpendingPeriod): SpendingRow[] {
   const rows = filterByPeriod(transactions, period).filter((row) => row.direction === "expense");
   const totals = new Map<string, number>();
@@ -1745,15 +1820,15 @@ async function saveCloudData(userId: string, transactions: Transaction[], latest
 }
 
 function saveMerchantRule(transaction: Transaction, category: Transaction["category"]) {
-  const pattern = transaction.merchant.toLowerCase().trim();
+  const pattern = normalizeMerchantKey(transaction.merchant);
   if (!pattern) return;
 
   try {
-    const current = JSON.parse(window.localStorage.getItem("finwise.merchantRules") ?? "[]") as Array<{ pattern: string; category: Transaction["category"] }>;
-    const next = [{ pattern, category }, ...current.filter((rule) => rule.pattern !== pattern)];
+    const current = JSON.parse(window.localStorage.getItem("finwise.merchantRules") ?? "[]") as Array<{ pattern: string; merchant?: string; category: Transaction["category"]; subcategory?: string }>;
+    const next = [{ pattern, merchant: transaction.merchant, category, subcategory: category }, ...current.filter((rule) => rule.pattern !== pattern)];
     window.localStorage.setItem("finwise.merchantRules", JSON.stringify(next.slice(0, 200)));
   } catch {
-    window.localStorage.setItem("finwise.merchantRules", JSON.stringify([{ pattern, category }]));
+    window.localStorage.setItem("finwise.merchantRules", JSON.stringify([{ pattern, merchant: transaction.merchant, category, subcategory: category }]));
   }
 }
 
