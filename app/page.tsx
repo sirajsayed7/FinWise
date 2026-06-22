@@ -108,24 +108,24 @@ const monthlyGroups = [
     month: "June 2026",
     count: 42,
     rows: [
-      { merchant: "Carrefour City Center Doha", detail: "Groceries and household items", category: "Groceries", amount: 156.75, direction: "expense", account: "QNB Visa •••• 2456", logo: "C", color: "bg-blue-50 text-blue-600" },
-      { merchant: "Talabat Food Delivery", detail: "Lunch order", category: "Dining Out", amount: 42.5, direction: "expense", account: "QNB Visa •••• 2456", logo: "t", color: "bg-orange-500 text-white" },
-      { merchant: "Salary Credit", detail: "June 2026 Salary", category: "Income", amount: 7500, direction: "income", account: "QNB Salary •••• 9999", logo: "S", color: "bg-emerald-50 text-emerald-500" }
+      { merchant: "Carrefour City Center Doha", detail: "Groceries and household items", category: "Groceries", amount: 156.75, direction: "expense", account: "QNB Visa **** 2456", logo: "C", color: "bg-blue-50 text-blue-600" },
+      { merchant: "Talabat Food Delivery", detail: "Lunch order", category: "Dining Out", amount: 42.5, direction: "expense", account: "QNB Visa **** 2456", logo: "t", color: "bg-orange-500 text-white" },
+      { merchant: "Salary Credit", detail: "June 2026 Salary", category: "Income", amount: 7500, direction: "income", account: "QNB Salary **** 9999", logo: "S", color: "bg-emerald-50 text-emerald-500" }
     ]
   },
   {
     month: "May 2026",
     count: 38,
     rows: [
-      { merchant: "Uber Ride", detail: "Ride to West Bay", category: "Transport", amount: 28, direction: "expense", account: "QNB Visa •••• 2456", logo: "U", color: "bg-slate-900 text-white" },
-      { merchant: "Netflix Subscription", detail: "Premium Plan", category: "Subscriptions", amount: 42, direction: "expense", account: "QNB Visa •••• 2456", logo: "N", color: "bg-red-50 text-red-600" }
+      { merchant: "Uber Ride", detail: "Ride to West Bay", category: "Transport", amount: 28, direction: "expense", account: "QNB Visa **** 2456", logo: "U", color: "bg-slate-900 text-white" },
+      { merchant: "Netflix Subscription", detail: "Premium Plan", category: "Subscriptions", amount: 42, direction: "expense", account: "QNB Visa **** 2456", logo: "N", color: "bg-red-50 text-red-600" }
     ]
   },
   {
     month: "April 2026",
     count: 35,
     rows: [
-      { merchant: "Apple Services", detail: "iCloud+ 200GB", category: "Subscriptions", amount: 13.99, direction: "expense", account: "QNB Visa •••• 2456", logo: "A", color: "bg-slate-100 text-slate-600" }
+      { merchant: "Apple Services", detail: "iCloud+ 200GB", category: "Subscriptions", amount: 13.99, direction: "expense", account: "QNB Visa **** 2456", logo: "A", color: "bg-slate-100 text-slate-600" }
     ]
   }
 ];
@@ -835,7 +835,7 @@ function TransactionListRow({ row, onOpen, onActions }: { row: Transaction; onOp
           <span className="truncate">{row.date}</span>
           <span className={row.direction === "income" ? "shrink-0 rounded-[8px] bg-emerald-50 px-1.5 py-0.5 text-[10.5px] font-bold text-emerald-600" : "shrink-0 rounded-[8px] bg-violet-50 px-1.5 py-0.5 text-[10.5px] font-bold text-[#6D35F5]"}>{row.category}</span>
         </p>
-        <p className="mt-0.5 truncate text-[10.5px] font-medium text-[#94A3B8]">{row.bank} · {row.categorySource}{row.needsReview ? " · Needs review" : ""}</p>
+        <p className="mt-0.5 truncate text-[10.5px] font-medium text-[#94A3B8]">{row.bank} - {row.categorySource}{row.needsReview ? " - Needs review" : ""}</p>
       </button>
       <button onClick={onOpen} className="text-right">
         <p className={isIncome ? "whitespace-nowrap text-[13.5px] font-extrabold text-emerald-500 min-[391px]:text-[14px]" : "whitespace-nowrap text-[13.5px] font-extrabold text-red-500 min-[391px]:text-[14px]"}>{isIncome ? "+" : "-"}QAR {formatAmount(row.amount)}</p>
@@ -853,7 +853,7 @@ function ReviewQueueRow({ row, onCorrect }: { row: Transaction; onCorrect: () =>
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[13.5px] font-extrabold text-[#0F172A]">{row.merchant}</span>
-        <span className="mt-0.5 block truncate text-[11.5px] font-semibold text-[#64748B]">{row.category} · {Math.round(row.confidence * 100)}% confidence</span>
+        <span className="mt-0.5 block truncate text-[11.5px] font-semibold text-[#64748B]">{row.category} - {Math.round(row.confidence * 100)}% confidence</span>
       </span>
       <span className="rounded-full bg-[#6D35F5] px-3 py-1.5 text-[12px] font-extrabold text-white">Fix</span>
     </button>
@@ -1025,7 +1025,7 @@ function StatementsPage({ transactions, latestPeriod, setActiveView, onClearUplo
       <PageHeader title="Statements" subtitle="View uploaded statement history and processing results." actionLabel="Upload" onAction={() => setActiveView("upload")} />
       <div className="grid gap-4">
         {groups.length ? groups.map((group) => (
-          <StatementHistoryCard key={group.month} month={group.month} bank={latestPeriod ? `${latestPeriod.label} · ${formatPeriodDates(latestPeriod)}` : "Imported statement"} imported={`${group.count} transactions`} review={`${group.rows.filter((row) => row.needsReview).length} need review`} />
+          <StatementHistoryCard key={group.month} month={group.month} bank={latestPeriod ? `${latestPeriod.label} - ${formatPeriodDates(latestPeriod)}` : "Imported statement"} imported={`${group.count} transactions`} review={`${group.rows.filter((row) => row.needsReview).length} need review`} />
         )) : (
           <section className="rounded-[22px] bg-white px-5 py-8 text-center shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
             <p className="text-[15px] font-extrabold text-[#0F172A]">No statements imported</p>
@@ -1373,7 +1373,7 @@ function CompactTransactionRow({ row }: { row: Transaction }) {
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-[13px] font-bold text-[#0F172A]">{row.merchant}</p>
-        <p className="text-[11.5px] font-medium text-[#64748B]">{row.date} · {row.category}</p>
+        <p className="text-[11.5px] font-medium text-[#64748B]">{row.date} - {row.category}</p>
       </div>
       <p className={row.direction === "income" ? "whitespace-nowrap text-[12.5px] font-extrabold text-emerald-500" : "whitespace-nowrap text-[12.5px] font-extrabold text-red-500"}>{row.direction === "income" ? "+" : "-"}QAR {formatAmount(row.amount)}</p>
     </div>
@@ -1401,9 +1401,27 @@ function MerchantLogo({ merchant, fallback }: { merchant: string; fallback: stri
   }, [merchant]);
 
   const logoUrl = logoUrls[logoIndex];
-  if (!logoUrl) return <span>{fallback}</span>;
+  if (!logoUrl) {
+    return (
+      <span className={`grid h-full w-full place-items-center rounded-full text-[12px] font-extrabold ${getLogoFallbackClass(merchant)}`}>
+        {getLogoFallbackText(merchant, fallback)}
+      </span>
+    );
+  }
 
-  return <img src={logoUrl} alt="" className="h-full w-full rounded-full object-cover" loading="lazy" onError={() => setLogoIndex((current) => current + 1)} />;
+  return (
+    <img
+      src={logoUrl}
+      alt=""
+      className="h-full w-full rounded-full bg-white object-cover"
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onError={() => {
+        rememberBadLogoUrl(merchant, logoUrl);
+        setLogoIndex((current) => current + 1);
+      }}
+    />
+  );
 }
 
 function MiniMetric({ label, value, tone = "slate" }: { label: string; value: string; tone?: "slate" | "red" | "green" }) {
@@ -1474,7 +1492,7 @@ function StatementHistoryCardV2({ statement, onDelete }: { statement: StatementS
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h2 className="truncate text-[16.5px] font-extrabold tracking-[-0.02em] text-[#0F172A]">{statement.fileName}</h2>
-              <p className="mt-0.5 text-[12.5px] font-semibold text-[#64748B]">{statement.bank} · {statement.period.label || "Detected period"}</p>
+              <p className="mt-0.5 text-[12.5px] font-semibold text-[#64748B]">{statement.bank} - {statement.period.label || "Detected period"}</p>
             </div>
             <span className={statement.status === "review" ? "shrink-0 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-extrabold text-amber-600" : "shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-extrabold text-emerald-600"}>
               {statement.status === "review" ? "Review" : "Processed"}
@@ -1889,29 +1907,96 @@ function toTitle(value: string) {
 }
 
 function getMerchantLogoUrls(merchant: string) {
-  const normalized = merchant.toLowerCase();
-  const key = `finwise.logo.${normalized.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
+  const normalized = normalizeLogoKey(merchant);
+  const key = getLogoStorageKey(merchant);
+  const badUrls = getBadLogoUrls(merchant);
 
-  try {
-    const cached = window.localStorage.getItem(key);
-    if (cached) return JSON.parse(cached) as string[];
-  } catch {
-    // Ignore storage failures; logo fallback still works.
+  if (typeof window !== "undefined") {
+    try {
+      const cached = window.localStorage.getItem(key);
+      if (cached) {
+        const urls = (JSON.parse(cached) as string[]).filter((url) => !badUrls.includes(url));
+        if (urls.length) return urls;
+      }
+    } catch {
+      // Ignore storage failures; logo fallback still works.
+    }
   }
 
-  const match = merchantLogoDomains.find((item) => item.keywords.some((keyword) => normalized.includes(keyword)));
+  const match = merchantLogoDomains.find((item) => item.keywords.some((keyword) => normalized.includes(normalizeLogoKey(keyword))));
   if (!match) return [];
 
   const urls = [
     `https://logo.clearbit.com/${match.domain}`,
     `https://www.google.com/s2/favicons?domain=${match.domain}&sz=128`
-  ];
-  try {
-    window.localStorage.setItem(key, JSON.stringify(urls));
-  } catch {
-    // Ignore storage failures; image can still load for this session.
+  ].filter((url) => !badUrls.includes(url));
+
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.setItem(key, JSON.stringify(urls));
+    } catch {
+      // Ignore storage failures; image can still load for this session.
+    }
   }
   return urls;
+}
+
+function rememberBadLogoUrl(merchant: string, url: string) {
+  if (typeof window === "undefined") return;
+
+  try {
+    const key = getBadLogoStorageKey(merchant);
+    const current = JSON.parse(window.localStorage.getItem(key) ?? "[]") as string[];
+    if (!current.includes(url)) {
+      window.localStorage.setItem(key, JSON.stringify([...current, url].slice(-12)));
+    }
+  } catch {
+    // Broken storage should never block the transaction list.
+  }
+}
+
+function getBadLogoUrls(merchant: string) {
+  if (typeof window === "undefined") return [];
+
+  try {
+    return JSON.parse(window.localStorage.getItem(getBadLogoStorageKey(merchant)) ?? "[]") as string[];
+  } catch {
+    return [];
+  }
+}
+
+function getLogoStorageKey(merchant: string) {
+  return `finwise.logo.${normalizeLogoKey(merchant).replace(/\s+/g, "-") || "unknown"}`;
+}
+
+function getBadLogoStorageKey(merchant: string) {
+  return `${getLogoStorageKey(merchant)}.bad`;
+}
+
+function normalizeLogoKey(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function getLogoFallbackText(merchant: string, fallback: string) {
+  const normalized = normalizeLogoKey(merchant) || normalizeLogoKey(fallback) || "fw";
+  const words = normalized.split(" ").filter(Boolean);
+  if (words.length >= 2) return `${words[0][0]}${words[1][0]}`.toUpperCase();
+  return normalized.slice(0, 2).toUpperCase();
+}
+
+const logoFallbackClasses = [
+  "bg-violet-50 text-violet-700",
+  "bg-emerald-50 text-emerald-700",
+  "bg-sky-50 text-sky-700",
+  "bg-orange-50 text-orange-700",
+  "bg-rose-50 text-rose-700",
+  "bg-slate-100 text-slate-700"
+];
+
+function getLogoFallbackClass(merchant: string) {
+  const normalized = normalizeLogoKey(merchant);
+  const hash = Array.from(normalized).reduce((total, char) => total + char.charCodeAt(0), 0);
+  return logoFallbackClasses[hash % logoFallbackClasses.length];
 }
 
 function makeConicGradient(rows: SpendingRow[]) {
