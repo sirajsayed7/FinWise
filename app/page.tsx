@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, Tooltip, XAxis, YAxis } from "recharts";
 import type { User } from "@supabase/supabase-js";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
 import { categories } from "@/lib/categorization";
 import { demoTransactions } from "@/lib/demo-data";
 import { loadFinWiseData, saveFinWiseData } from "@/lib/finwise-db";
@@ -38,6 +41,13 @@ type StatementSummary = {
   period: StatementPeriodInfo;
   needsReview: number;
 };
+
+const authSchema = z.object({
+  email: z.string().trim().email("Enter a valid email address."),
+  password: z.string().min(6, "Password must be at least 6 characters.")
+});
+
+type AuthFormFields = z.infer<typeof authSchema>;
 
 const spendingByPeriod: Record<SpendingPeriod, SpendingRow[]> = {
   "This Month": [
@@ -188,6 +198,12 @@ const trendRows = [
   { date: "Jun 30", amount: 9450 }
 ];
 
+type LocalSnapshot = {
+  transactions: Transaction[];
+  latestPeriod: StatementPeriodInfo | null;
+  savedAt: string;
+};
+
 export default function FinWiseApp() {
   const [activeView, setActiveView] = useState<ActiveView>("home");
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -221,7 +237,8 @@ export default function FinWiseApp() {
   useEffect(() => {
     if (isSupabaseConfigured) return;
     window.localStorage.setItem("finwise.transactions", JSON.stringify(transactions));
-  }, [transactions]);
+    if (latestPeriod) window.localStorage.setItem("finwise.latestPeriod", JSON.stringify(latestPeriod));
+  }, [transactions, latestPeriod]);
 
   useEffect(() => {
     const supabase = getSupabase();
@@ -251,21 +268,32 @@ export default function FinWiseApp() {
     if (!isSupabaseConfigured || !authUser) return;
 
     let cancelled = false;
+    const localSnapshot = loadLocalSnapshot(authUser.id);
+    if (localSnapshot?.transactions.length) {
+      const cleanLocal = dedupe(sanitizeTransactions(localSnapshot.transactions));
+      setTransactions(cleanLocal);
+      setLatestPeriod(localSnapshot.latestPeriod);
+      setUploadStatus(`${cleanLocal.length} transactions`);
+    }
+
     setSyncStatus("Loading account data...");
     loadCloudData(authUser.id).then((data) => {
       if (cancelled) return;
       const clean = dedupe(sanitizeTransactions(data?.transactions ?? []));
       const localRules = data?.merchant_rules ?? [];
-      setTransactions(clean);
-      setLatestPeriod(data?.latest_period ?? null);
-      setUploadStatus(clean.length ? `${clean.length} transactions` : "No uploads yet");
+      const fallback = clean.length ? null : localSnapshot;
+      const nextTransactions = clean.length ? clean : dedupe(sanitizeTransactions(fallback?.transactions ?? []));
+      const nextPeriod = data?.latest_period ?? fallback?.latestPeriod ?? null;
+      setTransactions(nextTransactions);
+      setLatestPeriod(nextPeriod);
+      setUploadStatus(nextTransactions.length ? `${nextTransactions.length} transactions` : "No uploads yet");
       window.localStorage.setItem("finwise.merchantRules", JSON.stringify(localRules));
       setCloudLoaded(true);
-      setSyncStatus(clean.length ? "Synced" : "Ready for first upload");
+      setSyncStatus(clean.length ? "Synced" : nextTransactions.length ? "Loaded from this device" : "Ready for first upload");
     }).catch(() => {
       if (cancelled) return;
       setCloudLoaded(true);
-      setSyncStatus("Cloud sync unavailable");
+      setSyncStatus(localSnapshot?.transactions.length ? "Loaded from this device" : "Cloud sync unavailable");
     });
 
     return () => {
@@ -275,10 +303,23 @@ export default function FinWiseApp() {
 
   useEffect(() => {
     if (!isSupabaseConfigured || !authUser || !cloudLoaded) return;
+    saveLocalSnapshot(authUser.id, transactions, latestPeriod);
     saveCloudData(authUser.id, transactions, latestPeriod).then((ok) => {
       setSyncStatus(ok ? "Synced" : "Sync failed");
     });
   }, [transactions, latestPeriod, authUser, cloudLoaded]);
+
+  useEffect(() => {
+    if (!transactions.length) return;
+    const merchants = Array.from(new Set(transactions.map((transaction) => transaction.merchant).filter(Boolean))).slice(0, 80);
+    for (const merchant of merchants) {
+      for (const url of getMerchantLogoUrls(merchant)) {
+        const image = new Image();
+        image.decoding = "async";
+        image.src = url;
+      }
+    }
+  }, [transactions]);
 
   function clearUploads() {
     setTransactions([]);
@@ -286,6 +327,7 @@ export default function FinWiseApp() {
     setUploadStatus("No uploads yet");
     window.localStorage.removeItem("finwise.transactions");
     window.localStorage.removeItem("finwise.latestPeriod");
+    if (authUser) window.localStorage.removeItem(getLocalSnapshotKey(authUser.id));
   }
 
   function clearStatement(statementId: string) {
@@ -402,29 +444,35 @@ function LoadingScreen() {
 
 function AuthScreen() {
   const [mode, setMode] = useState<"login" | "signup">("login");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [status, setStatus] = useState("");
-  const [busy, setBusy] = useState(false);
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting }
+  } = useForm<AuthFormFields>({
+    resolver: zodResolver(authSchema),
+    defaultValues: {
+      email: "",
+      password: ""
+    }
+  });
 
-  async function submitAuth(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function submitAuth(values: AuthFormFields) {
     const supabase = getSupabase();
     if (!supabase) return;
-    setBusy(true);
     setStatus("");
 
     const result = mode === "login"
-      ? await supabase.auth.signInWithPassword({ email, password })
+      ? await supabase.auth.signInWithPassword(values)
       : await supabase.auth.signUp({
-          email,
-          password,
+          email: values.email,
+          password: values.password,
           options: {
             emailRedirectTo: window.location.origin
           }
         });
 
-    setBusy(false);
     if (result.error) {
       setStatus(result.error.message);
       return;
@@ -444,22 +492,31 @@ function AuthScreen() {
           <h1 className="mt-3 text-[32px] font-extrabold leading-tight tracking-[-0.055em]">{mode === "login" ? "Sign in to your account" : "Sign up for FinWise"}</h1>
           <p className="mt-2 text-[14px] font-medium leading-relaxed text-[#64748B]">Each account has its own statements, transactions, merchant rules, and saved logos.</p>
 
-          <form onSubmit={submitAuth} className="mt-6 grid gap-3">
+          <form onSubmit={handleSubmit(submitAuth)} className="mt-6 grid gap-3">
             <label className="grid gap-1.5">
               <span className="text-[12px] font-bold text-[#475569]">Email</span>
-              <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required className="h-12 rounded-[16px] bg-[#F8FAFC] px-4 text-[14px] font-semibold outline-none ring-1 ring-[#E2E8F0] focus:ring-[#6D35F5]" />
+              <input {...register("email")} type="email" autoComplete="email" className="h-12 rounded-[16px] bg-[#F8FAFC] px-4 text-[14px] font-semibold outline-none ring-1 ring-[#E2E8F0] focus:ring-[#6D35F5]" />
+              {errors.email ? <span className="text-[11.5px] font-bold text-red-500">{errors.email.message}</span> : null}
             </label>
             <label className="grid gap-1.5">
               <span className="text-[12px] font-bold text-[#475569]">Password</span>
-              <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" required minLength={6} className="h-12 rounded-[16px] bg-[#F8FAFC] px-4 text-[14px] font-semibold outline-none ring-1 ring-[#E2E8F0] focus:ring-[#6D35F5]" />
+              <input {...register("password")} type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} className="h-12 rounded-[16px] bg-[#F8FAFC] px-4 text-[14px] font-semibold outline-none ring-1 ring-[#E2E8F0] focus:ring-[#6D35F5]" />
+              {errors.password ? <span className="text-[11.5px] font-bold text-red-500">{errors.password.message}</span> : null}
             </label>
             {status ? <p className="rounded-[14px] bg-violet-50 p-3 text-[12px] font-semibold leading-relaxed text-[#5B21B6]">{status}</p> : null}
-            <button disabled={busy} className="mt-2 h-12 rounded-[16px] bg-[#6D35F5] text-[15px] font-extrabold text-white shadow-lg shadow-[#6D35F5]/20 disabled:opacity-60">
-              {busy ? "Please wait..." : mode === "login" ? "Log in" : "Create account"}
+            <button disabled={isSubmitting} className="mt-2 h-12 rounded-[16px] bg-[#6D35F5] text-[15px] font-extrabold text-white shadow-lg shadow-[#6D35F5]/20 disabled:opacity-60">
+              {isSubmitting ? "Please wait..." : mode === "login" ? "Log in" : "Create account"}
             </button>
           </form>
 
-          <button onClick={() => setMode(mode === "login" ? "signup" : "login")} className="mt-4 w-full text-center text-[13px] font-extrabold text-[#6D35F5]">
+          <button
+            onClick={() => {
+              setMode(mode === "login" ? "signup" : "login");
+              setStatus("");
+              reset(undefined, { keepValues: true });
+            }}
+            className="mt-4 w-full text-center text-[13px] font-extrabold text-[#6D35F5]"
+          >
             {mode === "login" ? "Create a new FinWise account" : "I already have an account"}
           </button>
         </div>
@@ -1393,34 +1450,41 @@ function RecommendationDetail({ amount, saving, text }: { amount: number; saving
 function MerchantLogo({ merchant, fallback }: { merchant: string; fallback: string }) {
   const [logoUrls, setLogoUrls] = useState<string[]>([]);
   const [logoIndex, setLogoIndex] = useState(0);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     const urls = getMerchantLogoUrls(merchant);
     setLogoUrls(urls);
     setLogoIndex(0);
+    setLoaded(false);
   }, [merchant]);
 
   const logoUrl = logoUrls[logoIndex];
-  if (!logoUrl) {
-    return (
-      <span className={`grid h-full w-full place-items-center rounded-full text-[12px] font-extrabold ${getLogoFallbackClass(merchant)}`}>
-        {getLogoFallbackText(merchant, fallback)}
-      </span>
-    );
-  }
+  const fallbackNode = (
+    <span className={`grid h-full w-full place-items-center rounded-full text-[12px] font-extrabold ${getLogoFallbackClass(merchant)}`}>
+      {getLogoFallbackText(merchant, fallback)}
+    </span>
+  );
+
+  if (!logoUrl) return fallbackNode;
 
   return (
-    <img
-      src={logoUrl}
-      alt=""
-      className="h-full w-full rounded-full bg-white object-cover"
-      loading="lazy"
-      referrerPolicy="no-referrer"
-      onError={() => {
-        rememberBadLogoUrl(merchant, logoUrl);
-        setLogoIndex((current) => current + 1);
-      }}
-    />
+    <span className="relative block h-full w-full rounded-full">
+      {fallbackNode}
+      <img
+        src={logoUrl}
+        alt=""
+        className={`absolute inset-0 h-full w-full rounded-full bg-white object-cover transition-opacity duration-200 ${loaded ? "opacity-100" : "opacity-0"}`}
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onLoad={() => setLoaded(true)}
+        onError={() => {
+          rememberBadLogoUrl(merchant, logoUrl);
+          setLoaded(false);
+          setLogoIndex((current) => current + 1);
+        }}
+      />
+    </span>
   );
 }
 
@@ -1871,6 +1935,40 @@ function sanitizeTransactions(transactions: Transaction[]) {
 
 function isDemoDataset(transactions: Transaction[]) {
   return transactions.length > 0 && transactions.every((transaction) => transaction.id.startsWith("demo-"));
+}
+
+function loadLocalSnapshot(userId: string): LocalSnapshot | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.localStorage.getItem(getLocalSnapshotKey(userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as LocalSnapshot;
+    if (!Array.isArray(parsed.transactions)) return null;
+    return parsed;
+  } catch {
+    window.localStorage.removeItem(getLocalSnapshotKey(userId));
+    return null;
+  }
+}
+
+function saveLocalSnapshot(userId: string, transactions: Transaction[], latestPeriod: StatementPeriodInfo | null) {
+  if (typeof window === "undefined") return;
+
+  try {
+    const snapshot: LocalSnapshot = {
+      transactions,
+      latestPeriod,
+      savedAt: new Date().toISOString()
+    };
+    window.localStorage.setItem(getLocalSnapshotKey(userId), JSON.stringify(snapshot));
+  } catch {
+    // Local backup is best-effort; Supabase remains the source of truth.
+  }
+}
+
+function getLocalSnapshotKey(userId: string) {
+  return `finwise.snapshot.${userId}`;
 }
 
 function useAppViewportWidth() {
