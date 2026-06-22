@@ -22,6 +22,10 @@ export type CategorizationSource = "user_rule" | "default_rule" | "ai" | "fallba
 export type Transaction = {
   id: string;
   statementId?: string;
+  statementFileName?: string;
+  statementUploadedAt?: string;
+  statementPeriodLabel?: string;
+  statementStatus?: "processed" | "failed" | "review";
   date: string;
   bank: string;
   descriptionRaw: string;

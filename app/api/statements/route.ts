@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { put } from "@vercel/blob";
+import crypto from "node:crypto";
 import { categorizeUnknownTransactions } from "@/lib/ai-categorization";
 import { getStatementPeriod, parseStatementFile } from "@/lib/parser";
 import type { MerchantRule } from "@/lib/types";
@@ -21,6 +22,10 @@ export async function POST(request: Request) {
   }
 
   let blobUrl: string | null = null;
+  const fileBuffer = Buffer.from(await file.arrayBuffer());
+  const fileHash = crypto.createHash("sha256").update(fileBuffer).digest("hex");
+  const statementId = fileHash.slice(0, 32);
+  const uploadedAt = new Date().toISOString();
 
   if (keepOriginal && process.env.BLOB_READ_WRITE_TOKEN) {
     // Vercel Blob SDK versions commonly expose public blobs. Keep this opt-in
@@ -32,17 +37,40 @@ export async function POST(request: Request) {
   }
 
   try {
-    const parsedTransactions = await parseStatementFile(file, bank, rules);
-    const transactions = await categorizeUnknownTransactions(parsedTransactions);
-    const period = getStatementPeriod(transactions);
+    const parseFile = new File([fileBuffer], file.name, { type: file.type || "application/octet-stream" });
+    const parsedTransactions = await parseStatementFile(parseFile, bank, rules);
+    const categorized = await categorizeUnknownTransactions(parsedTransactions);
+    const period = getStatementPeriod(categorized);
+    const summary = categorized.reduce(
+      (current, transaction) => {
+        if (transaction.direction === "income") current.totalIncome += transaction.amount;
+        else current.totalExpenses += transaction.amount;
+        return current;
+      },
+      { totalIncome: 0, totalExpenses: 0 }
+    );
+    const transactions = categorized.map((transaction) => ({
+      ...transaction,
+      statementId,
+      statementFileName: file.name,
+      statementUploadedAt: uploadedAt,
+      statementPeriodLabel: period.label,
+      statementStatus: "processed" as const
+    }));
 
     return NextResponse.json({
       statement: {
+        id: statementId,
         fileName: file.name,
         bank,
+        currency: transactions[0]?.currency ?? "QAR",
+        fileHash,
         blobUrl: keepOriginal ? blobUrl : null,
         status: "processed",
-        uploadedAt: new Date().toISOString(),
+        uploadedAt,
+        transactionCount: transactions.length,
+        totalIncome: summary.totalIncome,
+        totalExpenses: summary.totalExpenses,
         period
       },
       transactions

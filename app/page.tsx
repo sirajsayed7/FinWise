@@ -26,6 +26,19 @@ type StatementPeriodInfo = {
   label: string;
 };
 
+type StatementSummary = {
+  id: string;
+  fileName: string;
+  bank: string;
+  status: "processed" | "failed" | "review";
+  uploadedAt: string;
+  transactionCount: number;
+  totalIncome: number;
+  totalExpenses: number;
+  period: StatementPeriodInfo;
+  needsReview: number;
+};
+
 const spendingByPeriod: Record<SpendingPeriod, SpendingRow[]> = {
   "This Month": [
     { label: "Groceries", amount: 2420.5, percent: 28.6, color: "#22C55E" },
@@ -275,6 +288,16 @@ export default function FinWiseApp() {
     window.localStorage.removeItem("finwise.latestPeriod");
   }
 
+  function clearStatement(statementId: string) {
+    const nextTransactions = transactions.filter((transaction) => transaction.statementId !== statementId);
+    setTransactions(nextTransactions);
+    const nextLatest = getLatestPeriodFromTransactions(nextTransactions);
+    setLatestPeriod(nextLatest);
+    if (nextLatest) window.localStorage.setItem("finwise.latestPeriod", JSON.stringify(nextLatest));
+    else window.localStorage.removeItem("finwise.latestPeriod");
+    setUploadStatus(nextTransactions.length ? `${nextTransactions.length} transactions` : "No uploads yet");
+  }
+
   async function signOut() {
     const supabase = getSupabase();
     await supabase?.auth.signOut();
@@ -292,7 +315,18 @@ export default function FinWiseApp() {
     setUploadStatus("Uploading and categorizing...");
 
     let response: Response;
-    let payload: { error?: string; transactions?: Transaction[]; statement?: { period?: StatementPeriodInfo } };
+    let payload: {
+      error?: string;
+      transactions?: Transaction[];
+      statement?: {
+        id?: string;
+        fileName?: string;
+        fileHash?: string;
+        status?: string;
+        transactionCount?: number;
+        period?: StatementPeriodInfo;
+      };
+    };
     try {
       response = await fetch("/api/statements", { method: "POST", body: formData });
       payload = await response.json();
@@ -307,12 +341,23 @@ export default function FinWiseApp() {
     }
 
     const imported = sanitizeTransactions(payload.transactions ?? []);
-    setTransactions((current) => dedupe([...imported, ...current]));
-    setUploadStatus(`${imported.length} transactions imported`);
+    const statementId = payload.statement?.id ?? imported[0]?.statementId;
+    const duplicateExists = Boolean(statementId && transactions.some((transaction) => transaction.statementId === statementId));
+    if (duplicateExists) {
+      const shouldReplace = window.confirm("This statement appears to have already been uploaded. Replace the existing statement data?");
+      if (!shouldReplace) {
+        setUploadStatus("Duplicate statement ignored");
+        event.target.value = "";
+        return;
+      }
+    }
+    setTransactions((current) => dedupe([...imported, ...current.filter((transaction) => transaction.statementId !== statementId)]));
+    setUploadStatus(`${imported.length} transactions saved`);
     if (payload.statement?.period) {
       setLatestPeriod(payload.statement.period);
       window.localStorage.setItem("finwise.latestPeriod", JSON.stringify(payload.statement.period));
     }
+    event.target.value = "";
     setActiveView("transactions");
   }
 
@@ -334,7 +379,7 @@ export default function FinWiseApp() {
         {activeView === "upload" ? <UploadPage latestPeriod={latestPeriod} uploadStatus={uploadStatus} onUpload={uploadStatement} onClearUploads={clearUploads} hasUploads={transactionCount > 0} /> : null}
         {activeView === "insights" ? <InsightsPage transactions={transactions} /> : null}
         {activeView === "settings" ? <SettingsPage setActiveView={setActiveView} authEmail={authUser?.email ?? null} syncStatus={syncStatus} onSignOut={signOut} /> : null}
-        {activeView === "statements" ? <StatementsPage transactions={transactions} latestPeriod={latestPeriod} setActiveView={setActiveView} onClearUploads={clearUploads} /> : null}
+        {activeView === "statements" ? <StatementsPageV2 transactions={transactions} latestPeriod={latestPeriod} setActiveView={setActiveView} onClearUploads={clearUploads} onClearStatement={clearStatement} /> : null}
       </div>
       <BottomNavigation activeView={activeView} setActiveView={setActiveView} />
     </main>
@@ -616,6 +661,7 @@ function TransactionsPage({ transactions, setTransactions, setActiveView, onClea
   const [sheet, setSheet] = useState<string | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const groups = useMemo(() => groupTransactionsByMonth(transactions), [transactions]);
+  const statements = useMemo(() => getStatementSummaries(transactions, null), [transactions]);
   const summary = useMemo(() => getSummary(transactions), [transactions]);
 
   const filteredGroups = groups.map((group) => ({
@@ -651,7 +697,7 @@ function TransactionsPage({ transactions, setTransactions, setActiveView, onClea
               <h2 className="text-[16px] font-extrabold tracking-[-0.02em] text-[#0F172A] min-[391px]:text-[17px]">All Statements</h2>
               <span className="grid h-5 w-5 place-items-center rounded-full bg-emerald-50 text-emerald-500"><CheckIcon /></span>
             </div>
-            <p className="mt-0.5 text-[13px] font-medium text-[#64748B]">{groups.length} statements processed</p>
+            <p className="mt-0.5 text-[13px] font-medium text-[#64748B]">{statements.length} statements processed</p>
             <p className="mt-1 text-[12px] font-semibold text-[#475569]">{formatMonthRange(transactions)}</p>
           </button>
           <button onClick={() => setSheet("Statement selector")} className="hidden h-11 items-center gap-2 rounded-[15px] bg-white px-3 text-[13px] font-bold text-[#0F172A] shadow-sm ring-1 ring-[#E2E8F0] min-[390px]:flex">
@@ -692,7 +738,7 @@ function TransactionsPage({ transactions, setTransactions, setActiveView, onClea
         <MetricCard label="Transactions" value={transactions.length.toLocaleString("en-US")} helper="All time" />
         <MetricCard label="Total Spent" value={`QAR ${formatAmount(summary.expenses)}`} helper="All time" tone="red" />
         <MetricCard label="Total Income" value={`QAR ${formatAmount(summary.income)}`} helper="All time" tone="green" />
-        <MetricCard label="Statements" value={groups.length.toString()} helper="Processed" tone="purple" />
+        <MetricCard label="Statements" value={statements.length.toString()} helper="Processed" tone="purple" />
       </div>
 
       <div className="mt-4 flex items-center justify-between px-1 text-[14px] font-extrabold text-[#5A36ED]">
@@ -951,6 +997,34 @@ function StatementsPage({ transactions, latestPeriod, setActiveView, onClearUplo
         )}
       </div>
       {groups.length ? <button onClick={onClearUploads} className="mt-4 h-12 w-full rounded-[16px] bg-red-50 text-[15px] font-extrabold text-red-500 ring-1 ring-red-100">Clear all imported statements</button> : null}
+    </section>
+  );
+}
+
+function StatementsPageV2({ transactions, latestPeriod, setActiveView, onClearUploads, onClearStatement }: { transactions: Transaction[]; latestPeriod: StatementPeriodInfo | null; setActiveView: (view: ActiveView) => void; onClearUploads: () => void; onClearStatement: (statementId: string) => void }) {
+  const statements = useMemo(() => getStatementSummaries(transactions, latestPeriod), [transactions, latestPeriod]);
+
+  return (
+    <section>
+      <PageHeader title="Statements" subtitle="View uploaded statement history and processing results." actionLabel="Upload" onAction={() => setActiveView("upload")} />
+      <div className="grid gap-3.5">
+        {statements.length ? statements.map((statement) => (
+          <StatementHistoryCardV2
+            key={statement.id}
+            statement={statement}
+            onDelete={() => {
+              const shouldDelete = window.confirm(`Delete ${statement.fileName} and its ${statement.transactionCount} transactions?`);
+              if (shouldDelete) onClearStatement(statement.id);
+            }}
+          />
+        )) : (
+          <section className="rounded-[22px] bg-white px-5 py-8 text-center shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
+            <p className="text-[15px] font-extrabold text-[#0F172A]">No statements imported</p>
+            <p className="mt-1 text-[13px] font-medium text-[#64748B]">Upload a bank statement to start your dashboard.</p>
+          </section>
+        )}
+      </div>
+      {statements.length ? <button onClick={onClearUploads} className="mt-4 h-12 w-full rounded-[16px] bg-red-50 text-[15px] font-extrabold text-red-500 ring-1 ring-red-100">Clear all imported statements</button> : null}
     </section>
   );
 }
@@ -1350,6 +1424,51 @@ function StatementHistoryCard({ month, bank, imported, review }: { month: string
   );
 }
 
+function StatementHistoryCardV2({ statement, onDelete }: { statement: StatementSummary; onDelete: () => void }) {
+  const periodText = statement.period.startDate && statement.period.endDate
+    ? `${statement.period.startDate} to ${statement.period.endDate}`
+    : "Dates unavailable";
+
+  return (
+    <article className="rounded-[24px] bg-white p-4 shadow-[0_10px_26px_rgba(15,23,42,0.045)] ring-1 ring-[rgba(15,23,42,0.06)]">
+      <div className="flex items-start gap-3">
+        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-violet-50 text-[#633EF2]"><StatementIcon /></div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="truncate text-[16.5px] font-extrabold tracking-[-0.02em] text-[#0F172A]">{statement.fileName}</h2>
+              <p className="mt-0.5 text-[12.5px] font-semibold text-[#64748B]">{statement.bank} · {statement.period.label || "Detected period"}</p>
+            </div>
+            <span className={statement.status === "review" ? "shrink-0 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-extrabold text-amber-600" : "shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-extrabold text-emerald-600"}>
+              {statement.status === "review" ? "Review" : "Processed"}
+            </span>
+          </div>
+          <p className="mt-2 text-[12.5px] font-medium text-[#64748B]">{periodText}</p>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <MiniStatementMetric label="Transactions" value={statement.transactionCount.toString()} />
+            <MiniStatementMetric label="Spent" value={`QAR ${formatCompact(statement.totalExpenses)}`} tone="red" />
+            <MiniStatementMetric label="Income" value={`QAR ${formatCompact(statement.totalIncome)}`} tone="green" />
+          </div>
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <p className="text-[12px] font-semibold text-[#64748B]">{statement.needsReview ? `${statement.needsReview} need review` : "No review needed"}</p>
+            <button onClick={onDelete} className="rounded-full bg-red-50 px-3 py-1.5 text-[12px] font-extrabold text-red-500 ring-1 ring-red-100">Delete</button>
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function MiniStatementMetric({ label, value, tone = "slate" }: { label: string; value: string; tone?: "slate" | "red" | "green" }) {
+  const toneClass = tone === "red" ? "text-red-500" : tone === "green" ? "text-emerald-500" : "text-[#0F172A]";
+  return (
+    <div className="min-w-0 rounded-[14px] bg-[#F8FAFC] px-2.5 py-2 ring-1 ring-[#E2E8F0]">
+      <p className="truncate text-[10.5px] font-bold uppercase tracking-[0.04em] text-[#64748B]">{label}</p>
+      <p className={`mt-1 truncate text-[12.5px] font-extrabold tracking-[-0.02em] ${toneClass}`}>{value}</p>
+    </div>
+  );
+}
+
 function SettingsGroup({ title, items }: { title: string; items: string[] }) {
   return (
     <section className="rounded-[23px] bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
@@ -1504,6 +1623,57 @@ function groupTransactionsByMonth(transactions: Transaction[]) {
     count: rows.length,
     rows
   }));
+}
+
+function getStatementSummaries(transactions: Transaction[], latestPeriod: StatementPeriodInfo | null): StatementSummary[] {
+  if (!transactions.length) return [];
+
+  const groups = new Map<string, Transaction[]>();
+  for (const transaction of transactions) {
+    const id = transaction.statementId ?? `legacy:${transaction.date.slice(0, 7)}`;
+    groups.set(id, [...(groups.get(id) ?? []), transaction]);
+  }
+
+  return Array.from(groups.entries())
+    .map(([id, rows]) => {
+      const sortedDates = rows.map((row) => row.date).sort();
+      const totalIncome = rows.filter((row) => row.direction === "income").reduce((sum, row) => sum + row.amount, 0);
+      const totalExpenses = rows.filter((row) => row.direction === "expense").reduce((sum, row) => sum + row.amount, 0);
+      const period = getPeriodFromRows(rows, latestPeriod);
+      const needsReview = rows.filter((row) => row.needsReview || row.confidence < 0.75).length;
+
+      return {
+        id,
+        fileName: rows[0]?.statementFileName ?? `${getMonthLabel(sortedDates[0] ?? rows[0]?.date)} statement`,
+        bank: rows[0]?.bank ?? "Unknown Bank",
+        status: needsReview ? "review" : "processed",
+        uploadedAt: rows[0]?.statementUploadedAt ?? `${sortedDates.at(-1) ?? rows[0]?.date}T00:00:00.000Z`,
+        transactionCount: rows.length,
+        totalIncome,
+        totalExpenses,
+        period,
+        needsReview
+      } satisfies StatementSummary;
+    })
+    .sort((left, right) => right.uploadedAt.localeCompare(left.uploadedAt));
+}
+
+function getPeriodFromRows(rows: Transaction[], fallback: StatementPeriodInfo | null): StatementPeriodInfo {
+  const sorted = rows.map((row) => row.date).sort();
+  const startDate = sorted[0] ?? fallback?.startDate ?? null;
+  const endDate = sorted.at(-1) ?? fallback?.endDate ?? null;
+  const label = rows[0]?.statementPeriodLabel ?? fallback?.label ?? getMonthLabel(startDate ?? "");
+  return {
+    startDate,
+    endDate,
+    days: startDate && endDate ? Math.max(1, Math.round((new Date(`${endDate}T00:00:00`).getTime() - new Date(`${startDate}T00:00:00`).getTime()) / 86400000) + 1) : fallback?.days ?? 0,
+    label
+  };
+}
+
+function getLatestPeriodFromTransactions(transactions: Transaction[]) {
+  const latest = getStatementSummaries(transactions, null)[0];
+  return latest?.period ?? null;
 }
 
 function filterByPeriod(transactions: Transaction[], period: SpendingPeriod) {

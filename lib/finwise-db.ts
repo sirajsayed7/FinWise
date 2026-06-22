@@ -52,6 +52,8 @@ type StatementRow = {
   period_end: string | null;
   period_days: number;
   period_label: string;
+  file_hash: string | null;
+  blob_url: string | null;
   uploaded_at: string;
 };
 
@@ -68,10 +70,9 @@ export async function loadFinWiseData(userId: string): Promise<FinWiseCloudData 
         .order("date", { ascending: false }),
       supabase
         .from("statements")
-        .select("id,file_name,bank,currency,status,transaction_count,total_income,total_expenses,period_start,period_end,period_days,period_label,uploaded_at")
+        .select("id,file_name,bank,currency,status,transaction_count,total_income,total_expenses,period_start,period_end,period_days,period_label,file_hash,blob_url,uploaded_at")
         .eq("user_id", userId)
-        .order("uploaded_at", { ascending: false })
-        .limit(1),
+        .order("uploaded_at", { ascending: false }),
       supabase
         .from("merchant_rules")
         .select("id,pattern,merchant,category,subcategory")
@@ -81,7 +82,8 @@ export async function loadFinWiseData(userId: string): Promise<FinWiseCloudData 
 
     if (transactionsError) throw transactionsError;
 
-    const transactions = ((transactionRows ?? []) as TransactionRow[]).map(rowToTransaction);
+    const statementsById = new Map(((statementRows ?? []) as StatementRow[]).map((row) => [row.id, row]));
+    const transactions = ((transactionRows ?? []) as TransactionRow[]).map((row) => rowToTransaction(row, statementsById.get(row.statement_id ?? "")));
     if (transactions.length) {
       return {
         transactions,
@@ -115,36 +117,16 @@ export async function saveFinWiseData(userId: string, transactions: Transaction[
       return legacySaved;
     }
 
-    const statementId = getStatementId(userId, latestPeriod);
-    const summary = transactions.reduce(
-      (current, transaction) => {
-        if (transaction.direction === "income") current.totalIncome += transaction.amount;
-        else current.totalExpenses += transaction.amount;
-        return current;
-      },
-      { totalIncome: 0, totalExpenses: 0 }
-    );
+    const statements = getStatementRows(userId, transactions, latestPeriod);
+    await supabase.from("transactions").delete().eq("user_id", userId);
+    await supabase.from("statements").delete().eq("user_id", userId);
 
-    if (latestPeriod) {
-      const { error: statementError } = await supabase.from("statements").upsert({
-        user_id: userId,
-        id: statementId,
-        file_name: "Latest statement",
-        bank: transactions[0]?.bank ?? "Unknown Bank",
-        currency: transactions[0]?.currency ?? "QAR",
-        status: "processed",
-        transaction_count: transactions.length,
-        total_income: summary.totalIncome,
-        total_expenses: summary.totalExpenses,
-        period_start: latestPeriod.startDate,
-        period_end: latestPeriod.endDate,
-        period_days: latestPeriod.days,
-        period_label: latestPeriod.label
-      }, { onConflict: "user_id,id" });
+    if (statements.length) {
+      const { error: statementError } = await supabase.from("statements").upsert(statements, { onConflict: "user_id,id" });
       if (statementError) throw statementError;
     }
 
-    const transactionRows = transactions.map((transaction) => transactionToRow(userId, transaction, latestPeriod ? statementId : null));
+    const transactionRows = transactions.map((transaction) => transactionToRow(userId, transaction, transaction.statementId ?? statements[0]?.id ?? null));
     const { error: transactionError } = await supabase
       .from("transactions")
       .upsert(transactionRows, { onConflict: "user_id,id" });
@@ -204,10 +186,14 @@ async function saveLegacyData(userId: string, transactions: Transaction[], lates
   return !error;
 }
 
-function rowToTransaction(row: TransactionRow): Transaction {
+function rowToTransaction(row: TransactionRow, statement?: StatementRow): Transaction {
   return {
     id: row.id,
     statementId: row.statement_id ?? undefined,
+    statementFileName: statement?.file_name,
+    statementUploadedAt: statement?.uploaded_at,
+    statementPeriodLabel: statement?.period_label,
+    statementStatus: statement?.status as Transaction["statementStatus"] | undefined,
     date: row.date,
     bank: row.bank,
     descriptionRaw: row.description_raw,
@@ -256,8 +242,50 @@ function rowToPeriod(row: StatementRow): StatementPeriodInfo {
   };
 }
 
-function getStatementId(userId: string, latestPeriod: StatementPeriodInfo | null) {
+function getStatementRows(userId: string, transactions: Transaction[], latestPeriod: StatementPeriodInfo | null) {
+  const groups = new Map<string, Transaction[]>();
+  for (const transaction of transactions) {
+    const id = transaction.statementId ?? getFallbackStatementId(latestPeriod);
+    const rows = groups.get(id) ?? [];
+    rows.push(transaction);
+    groups.set(id, rows);
+  }
+
+  return Array.from(groups.entries()).map(([id, rows]) => {
+    const sortedDates = rows.map((row) => row.date).sort();
+    const summary = rows.reduce(
+      (current, transaction) => {
+        if (transaction.direction === "income") current.totalIncome += transaction.amount;
+        else current.totalExpenses += transaction.amount;
+        return current;
+      },
+      { totalIncome: 0, totalExpenses: 0 }
+    );
+    const periodDays = latestPeriod?.days ?? 0;
+
+    return {
+      user_id: userId,
+      id,
+      file_name: rows[0]?.statementFileName ?? "Imported statement",
+      bank: rows[0]?.bank ?? "Unknown Bank",
+      currency: rows[0]?.currency ?? "QAR",
+      status: rows.some((row) => row.needsReview) ? "review" : "processed",
+      transaction_count: rows.length,
+      total_income: summary.totalIncome,
+      total_expenses: summary.totalExpenses,
+      period_start: sortedDates[0] ?? latestPeriod?.startDate ?? null,
+      period_end: sortedDates.at(-1) ?? latestPeriod?.endDate ?? null,
+      period_days: periodDays,
+      period_label: rows[0]?.statementPeriodLabel ?? latestPeriod?.label ?? "",
+      file_hash: id.length >= 32 ? id : null,
+      blob_url: null,
+      uploaded_at: rows[0]?.statementUploadedAt ?? new Date().toISOString()
+    };
+  });
+}
+
+function getFallbackStatementId(latestPeriod: StatementPeriodInfo | null) {
   const start = latestPeriod?.startDate ?? "unknown-start";
   const end = latestPeriod?.endDate ?? "unknown-end";
-  return `${userId}:${start}:${end}`;
+  return `statement:${start}:${end}`;
 }
