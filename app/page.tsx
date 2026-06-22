@@ -43,6 +43,7 @@ type StatementSummary = {
 };
 
 const authSchema = z.object({
+  fullName: z.string().trim().max(60, "Name must be 60 characters or less.").optional(),
   email: z.string().trim().email("Enter a valid email address."),
   password: z.string().min(6, "Password must be at least 6 characters.")
 });
@@ -221,6 +222,7 @@ export default function FinWiseApp() {
   const [cloudLoaded, setCloudLoaded] = useState(!isSupabaseConfigured);
   const [syncStatus, setSyncStatus] = useState(isSupabaseConfigured ? "Connect your account" : "Local mode");
   const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
+  const displayName = getUserDisplayName(authUser);
   const transactionCount = transactions.length;
 
   useEffect(() => {
@@ -444,7 +446,7 @@ export default function FinWiseApp() {
     <main className="min-h-screen bg-[#F8FAFC] text-[#111827]">
       <div className="mx-auto flex min-h-screen w-full max-w-[440px] flex-col bg-[#FAFBFF] px-4 pb-[calc(108px+env(safe-area-inset-bottom))] pt-[calc(14px+env(safe-area-inset-top))] min-[391px]:px-[18px] sm:my-5 sm:rounded-[34px] sm:border sm:border-white sm:shadow-2xl sm:shadow-slate-300/50">
         {activeView === "home" ? (
-          <HomeDashboard transactions={transactions} latestPeriod={latestPeriod} uploadStatus={uploadStatus} transactionCount={transactionCount} onUpload={uploadStatement} setActiveView={setActiveView} />
+          <HomeDashboard displayName={displayName} transactions={transactions} latestPeriod={latestPeriod} uploadStatus={uploadStatus} transactionCount={transactionCount} onUpload={uploadStatement} setActiveView={setActiveView} />
         ) : null}
         {activeView === "transactions" ? <TransactionsPage transactions={transactions} setTransactions={setTransactions} setActiveView={setActiveView} onClearUploads={clearUploads} /> : null}
         {activeView === "upload" ? <UploadPage latestPeriod={latestPeriod} uploadStatus={uploadStatus} onUpload={uploadStatement} onClearUploads={clearUploads} hasUploads={transactionCount > 0} pendingImport={pendingImport} onConfirmImport={confirmPendingImport} onCancelImport={() => setPendingImport(null)} onRemovePendingTransaction={removePendingTransaction} /> : null}
@@ -482,6 +484,7 @@ function AuthScreen() {
   } = useForm<AuthFormFields>({
     resolver: zodResolver(authSchema),
     defaultValues: {
+      fullName: "",
       email: "",
       password: ""
     }
@@ -493,12 +496,15 @@ function AuthScreen() {
     setStatus("");
 
     const result = mode === "login"
-      ? await supabase.auth.signInWithPassword(values)
+      ? await supabase.auth.signInWithPassword({ email: values.email, password: values.password })
       : await supabase.auth.signUp({
           email: values.email,
           password: values.password,
           options: {
-            emailRedirectTo: window.location.origin
+            emailRedirectTo: window.location.origin,
+            data: {
+              full_name: values.fullName?.trim() || values.email.split("@")[0]
+            }
           }
         });
 
@@ -522,6 +528,13 @@ function AuthScreen() {
           <p className="mt-2 text-[14px] font-medium leading-relaxed text-[#64748B]">Each account has its own statements, transactions, merchant rules, and saved logos.</p>
 
           <form onSubmit={handleSubmit(submitAuth)} className="mt-6 grid gap-3">
+            {mode === "signup" ? (
+              <label className="grid gap-1.5">
+                <span className="text-[12px] font-bold text-[#475569]">Full name</span>
+                <input {...register("fullName")} type="text" autoComplete="name" placeholder="Your name" className="h-12 rounded-[16px] bg-[#F8FAFC] px-4 text-[14px] font-semibold outline-none ring-1 ring-[#E2E8F0] focus:ring-[#6D35F5]" />
+                {errors.fullName ? <span className="text-[11.5px] font-bold text-red-500">{errors.fullName.message}</span> : null}
+              </label>
+            ) : null}
             <label className="grid gap-1.5">
               <span className="text-[12px] font-bold text-[#475569]">Email</span>
               <input {...register("email")} type="email" autoComplete="email" className="h-12 rounded-[16px] bg-[#F8FAFC] px-4 text-[14px] font-semibold outline-none ring-1 ring-[#E2E8F0] focus:ring-[#6D35F5]" />
@@ -554,12 +567,12 @@ function AuthScreen() {
   );
 }
 
-function HomeDashboard({ transactions, latestPeriod, uploadStatus, transactionCount, onUpload, setActiveView }: { transactions: Transaction[]; latestPeriod: StatementPeriodInfo | null; uploadStatus: string; transactionCount: number; onUpload: (event: ChangeEvent<HTMLInputElement>) => void; setActiveView: (view: ActiveView) => void }) {
+function HomeDashboard({ displayName, transactions, latestPeriod, uploadStatus, transactionCount, onUpload, setActiveView }: { displayName: string; transactions: Transaction[]; latestPeriod: StatementPeriodInfo | null; uploadStatus: string; transactionCount: number; onUpload: (event: ChangeEvent<HTMLInputElement>) => void; setActiveView: (view: ActiveView) => void }) {
   const summary = useMemo(() => getSummary(transactions), [transactions]);
 
   return (
     <>
-      <HomeHeader />
+      <HomeHeader displayName={displayName} />
       <TotalBalanceCard balance={summary.balance} />
       <SummaryCards summary={summary} />
       <LatestStatementCard latestPeriod={latestPeriod} uploadStatus={uploadStatus} transactionCount={transactionCount} onUpload={onUpload} onOpen={() => setActiveView("statements")} />
@@ -569,11 +582,11 @@ function HomeDashboard({ transactions, latestPeriod, uploadStatus, transactionCo
   );
 }
 
-function HomeHeader() {
+function HomeHeader({ displayName }: { displayName: string }) {
   return (
     <header className="mb-[18px] flex items-start justify-between gap-3 pt-1">
       <div className="min-w-0">
-        <h1 className="text-[clamp(26px,7vw,30px)] font-extrabold leading-tight tracking-[-0.035em] text-[#11152D]">Good morning, Siraj</h1>
+        <h1 className="text-[clamp(26px,7vw,30px)] font-extrabold leading-tight tracking-[-0.035em] text-[#11152D]">Good morning, {displayName}</h1>
         <p className="mt-1 text-[clamp(16px,4vw,17px)] font-medium leading-tight text-[#64708A]">Here&apos;s your financial overview</p>
       </div>
       <button aria-label="Notifications" className="relative grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white text-[#11152D] shadow-sm ring-1 ring-[rgba(15,23,42,0.06)]">
@@ -2047,6 +2060,17 @@ function isBalanceLikeTransaction(value: string) {
 
 function isDemoDataset(transactions: Transaction[]) {
   return transactions.length > 0 && transactions.every((transaction) => transaction.id.startsWith("demo-"));
+}
+
+function getUserDisplayName(user: User | null) {
+  const metadata = user?.user_metadata as { full_name?: string; name?: string } | undefined;
+  const metadataName = metadata?.full_name || metadata?.name;
+  if (metadataName?.trim()) return toTitle(metadataName.trim().split(/\s+/)[0]);
+
+  const emailName = user?.email?.split("@")[0]?.replace(/[._-]+/g, " ");
+  if (emailName?.trim()) return toTitle(emailName.trim().split(/\s+/)[0]);
+
+  return "there";
 }
 
 function loadLocalSnapshot(userId: string): LocalSnapshot | null {
