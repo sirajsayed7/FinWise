@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, Tooltip, XAxis, YAxis } from "recharts";
 import type { User } from "@supabase/supabase-js";
@@ -8,9 +8,9 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { categories } from "@/lib/categorization";
 import { demoTransactions } from "@/lib/demo-data";
-import { loadFinWiseData, saveFinWiseData } from "@/lib/finwise-db";
+import { loadFinWiseData, saveFinWiseData, loadMerchantLogoOverrides, saveMerchantLogoOverrides } from "@/lib/finwise-db";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase-client";
-import type { MerchantRule, Transaction } from "@/lib/types";
+import type { MerchantLogoRecord, MerchantRule, Transaction } from "@/lib/types";
 
 type ActiveView = "home" | "transactions" | "upload" | "insights" | "settings" | "statements";
 type SpendingPeriod = "This Month" | "Last Month" | "Year";
@@ -212,6 +212,8 @@ type PendingImport = {
   transactions: Transaction[];
 };
 
+type PendingTransactionPatch = Partial<Pick<Transaction, "date" | "merchant" | "category" | "amount" | "direction">>;
+
 export default function FinWiseApp() {
   const [activeView, setActiveView] = useState<ActiveView>("home");
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -222,6 +224,8 @@ export default function FinWiseApp() {
   const [cloudLoaded, setCloudLoaded] = useState(!isSupabaseConfigured);
   const [syncStatus, setSyncStatus] = useState(isSupabaseConfigured ? "Connect your account" : "Local mode");
   const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
+  const [merchantLogoOverrides, setMerchantLogoOverrides] = useState<MerchantLogoRecord[]>([]);
+  const userChangedDataRef = useRef(false);
   const displayName = getUserDisplayName(authUser);
   const transactionCount = transactions.length;
 
@@ -287,17 +291,20 @@ export default function FinWiseApp() {
     }
 
     setSyncStatus("Loading account data...");
-    loadCloudData(authUser.id).then((data) => {
+    loadCloudData(authUser.id).then(async (data) => {
       if (cancelled) return;
       const clean = dedupe(sanitizeTransactions(data?.transactions ?? []));
       const localRules = data?.merchant_rules ?? [];
       const fallback = clean.length ? null : localSnapshot;
       const nextTransactions = clean.length ? clean : dedupe(sanitizeTransactions(fallback?.transactions ?? []));
       const nextPeriod = data?.latest_period ?? fallback?.latestPeriod ?? null;
+      const logoOverrides = await loadMerchantLogoOverrides(authUser.id);
       setTransactions(nextTransactions);
       setLatestPeriod(nextPeriod);
+      setMerchantLogoOverrides(logoOverrides);
       setUploadStatus(nextTransactions.length ? `${nextTransactions.length} transactions` : "No uploads yet");
       window.localStorage.setItem("finwise.merchantRules", JSON.stringify(localRules));
+      cacheMerchantLogoOverrides(logoOverrides);
       setCloudLoaded(true);
       setSyncStatus(clean.length ? "Synced" : nextTransactions.length ? "Loaded from this device" : "Ready for first upload");
     }).catch(() => {
@@ -313,9 +320,13 @@ export default function FinWiseApp() {
 
   useEffect(() => {
     if (!isSupabaseConfigured || !authUser || !cloudLoaded) return;
-    saveLocalSnapshot(authUser.id, transactions, latestPeriod);
+    if (transactions.length || latestPeriod) {
+      saveLocalSnapshot(authUser.id, transactions, latestPeriod);
+    }
+    if (!userChangedDataRef.current) return;
     saveCloudData(authUser.id, transactions, latestPeriod).then((ok) => {
       setSyncStatus(ok ? "Synced" : "Sync failed");
+      if (ok) userChangedDataRef.current = false;
     });
   }, [transactions, latestPeriod, authUser, cloudLoaded]);
 
@@ -332,6 +343,7 @@ export default function FinWiseApp() {
   }, [transactions]);
 
   function clearUploads() {
+    userChangedDataRef.current = true;
     setTransactions([]);
     setLatestPeriod(null);
     setPendingImport(null);
@@ -342,6 +354,7 @@ export default function FinWiseApp() {
   }
 
   function clearStatement(statementId: string) {
+    userChangedDataRef.current = true;
     const nextTransactions = transactions.filter((transaction) => transaction.statementId !== statementId);
     setTransactions(nextTransactions);
     const nextLatest = getLatestPeriodFromTransactions(nextTransactions);
@@ -416,7 +429,18 @@ export default function FinWiseApp() {
     if (!pendingImport) return;
     const imported = sanitizeTransactions(pendingImport.transactions);
     const statementId = pendingImport.statementId ?? imported[0]?.statementId;
-    setTransactions((current) => dedupe([...imported, ...current.filter((transaction) => transaction.statementId !== statementId)]));
+    userChangedDataRef.current = true;
+    const nextLogoOverrides = mergeLogoOverrides(merchantLogoOverrides, imported);
+    setMerchantLogoOverrides(nextLogoOverrides);
+    cacheMerchantLogoOverrides(nextLogoOverrides);
+    if (authUser) {
+      saveMerchantLogoOverrides(authUser.id, nextLogoOverrides);
+    }
+    setTransactions((current) => {
+      const nextTransactions = dedupe([...imported, ...current.filter((transaction) => transaction.statementId !== statementId)]);
+      if (authUser) saveLocalSnapshot(authUser.id, nextTransactions, pendingImport.period);
+      return nextTransactions;
+    });
     setUploadStatus(`${imported.length} transactions saved`);
     if (pendingImport.period) {
       setLatestPeriod(pendingImport.period);
@@ -434,6 +458,33 @@ export default function FinWiseApp() {
     });
   }
 
+  function updatePendingTransaction(transactionId: string, patch: PendingTransactionPatch) {
+    setPendingImport((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        transactions: current.transactions.map((transaction) => {
+          if (transaction.id !== transactionId) return transaction;
+          const next = {
+            ...transaction,
+            ...patch,
+            amount: patch.amount !== undefined ? Math.max(0, patch.amount) : transaction.amount,
+            subcategory: patch.category ?? transaction.subcategory
+          };
+          return {
+            ...next,
+            merchant: next.merchant.trim() || transaction.merchant
+          };
+        })
+      };
+    });
+  }
+
+  function updateTransactions(next: Transaction[] | ((current: Transaction[]) => Transaction[])) {
+    userChangedDataRef.current = true;
+    setTransactions(next);
+  }
+
   if (!authReady) {
     return <LoadingScreen />;
   }
@@ -448,8 +499,8 @@ export default function FinWiseApp() {
         {activeView === "home" ? (
           <HomeDashboard displayName={displayName} transactions={transactions} latestPeriod={latestPeriod} uploadStatus={uploadStatus} transactionCount={transactionCount} onUpload={uploadStatement} setActiveView={setActiveView} />
         ) : null}
-        {activeView === "transactions" ? <TransactionsPage transactions={transactions} setTransactions={setTransactions} setActiveView={setActiveView} onClearUploads={clearUploads} /> : null}
-        {activeView === "upload" ? <UploadPage latestPeriod={latestPeriod} uploadStatus={uploadStatus} onUpload={uploadStatement} onClearUploads={clearUploads} hasUploads={transactionCount > 0} pendingImport={pendingImport} onConfirmImport={confirmPendingImport} onCancelImport={() => setPendingImport(null)} onRemovePendingTransaction={removePendingTransaction} /> : null}
+        {activeView === "transactions" ? <TransactionsPage transactions={transactions} setTransactions={updateTransactions} setActiveView={setActiveView} onClearUploads={clearUploads} /> : null}
+        {activeView === "upload" ? <UploadPage latestPeriod={latestPeriod} uploadStatus={uploadStatus} onUpload={uploadStatement} onClearUploads={clearUploads} hasUploads={transactionCount > 0} pendingImport={pendingImport} onConfirmImport={confirmPendingImport} onCancelImport={() => setPendingImport(null)} onRemovePendingTransaction={removePendingTransaction} onUpdatePendingTransaction={updatePendingTransaction} /> : null}
         {activeView === "insights" ? <InsightsPage transactions={transactions} /> : null}
         {activeView === "settings" ? <SettingsPage setActiveView={setActiveView} authEmail={authUser?.email ?? null} syncStatus={syncStatus} onSignOut={signOut} /> : null}
         {activeView === "statements" ? <StatementsPageV2 transactions={transactions} latestPeriod={latestPeriod} setActiveView={setActiveView} onClearUploads={clearUploads} onClearStatement={clearStatement} /> : null}
@@ -968,7 +1019,8 @@ function UploadPage({
   pendingImport,
   onConfirmImport,
   onCancelImport,
-  onRemovePendingTransaction
+  onRemovePendingTransaction,
+  onUpdatePendingTransaction
 }: {
   latestPeriod: StatementPeriodInfo | null;
   uploadStatus: string;
@@ -979,6 +1031,7 @@ function UploadPage({
   onConfirmImport: () => void;
   onCancelImport: () => void;
   onRemovePendingTransaction: (transactionId: string) => void;
+  onUpdatePendingTransaction: (transactionId: string, patch: PendingTransactionPatch) => void;
 }) {
   return (
     <section>
@@ -1008,6 +1061,7 @@ function UploadPage({
           onConfirm={onConfirmImport}
           onCancel={onCancelImport}
           onRemove={onRemovePendingTransaction}
+          onUpdate={onUpdatePendingTransaction}
         />
       ) : null}
       <StatusCard title="Processing status" body={uploadStatus} />
@@ -1015,7 +1069,7 @@ function UploadPage({
   );
 }
 
-function ImportReviewCard({ pendingImport, onConfirm, onCancel, onRemove }: { pendingImport: PendingImport; onConfirm: () => void; onCancel: () => void; onRemove: (transactionId: string) => void }) {
+function ImportReviewCard({ pendingImport, onConfirm, onCancel, onRemove, onUpdate }: { pendingImport: PendingImport; onConfirm: () => void; onCancel: () => void; onRemove: (transactionId: string) => void; onUpdate: (transactionId: string, patch: PendingTransactionPatch) => void }) {
   const summary = getSummary(pendingImport.transactions);
   const reviewCount = pendingImport.transactions.filter((transaction) => transaction.needsReview).length;
 
@@ -1036,26 +1090,55 @@ function ImportReviewCard({ pendingImport, onConfirm, onCancel, onRemove }: { pe
         <MiniMetric label="Net" value={`QAR ${formatDisplayAmount(summary.balance)}`} />
       </div>
 
-      <div className="mt-3 divide-y divide-[#EEF2F7] rounded-[18px] bg-[#F8FAFC] px-3">
-        {pendingImport.transactions.slice(0, 7).map((transaction) => (
-          <div key={transaction.id} className="flex items-center gap-2 py-2.5">
-            <span className={`grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full text-[12px] font-extrabold ${categoryAvatarStyles[transaction.category] ?? categoryAvatarStyles.Other}`}>
-              <MerchantLogo merchant={transaction.merchant} fallback={transaction.merchant.slice(0, 1)} />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[12.5px] font-extrabold text-[#0F172A]">{transaction.merchant}</span>
-              <span className="block truncate text-[11px] font-semibold text-[#64748B]">{transaction.date} - {transaction.category}</span>
-            </span>
-            <span className={transaction.direction === "income" ? "whitespace-nowrap text-[12px] font-extrabold text-emerald-500" : "whitespace-nowrap text-[12px] font-extrabold text-red-500"}>
-              {transaction.direction === "income" ? "+" : "-"}QAR {formatAmount(transaction.amount)}
-            </span>
-            <button onClick={() => onRemove(transaction.id)} className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white text-[16px] font-extrabold text-[#94A3B8] ring-1 ring-[#E2E8F0]" aria-label={`Remove ${transaction.merchant}`}>
-              x
-            </button>
-          </div>
-        ))}
+      <div className="mt-3 max-h-[440px] overflow-y-auto rounded-[18px] bg-[#F8FAFC] p-2 ring-1 ring-[#E2E8F0]">
+        <div className="grid gap-2">
+          {pendingImport.transactions.map((transaction, index) => (
+            <article key={transaction.id} className="rounded-[16px] bg-white p-3 shadow-[0_8px_18px_rgba(15,23,42,0.035)] ring-1 ring-[rgba(15,23,42,0.055)]">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className={`grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full text-[12px] font-extrabold ${categoryAvatarStyles[transaction.category] ?? categoryAvatarStyles.Other}`}>
+                    <MerchantLogo merchant={transaction.merchant} fallback={transaction.merchant.slice(0, 1)} />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-[12px] font-extrabold text-[#0F172A]">Row {index + 1}</span>
+                    <span className="block truncate text-[10.5px] font-bold text-[#94A3B8]">{transaction.descriptionRaw}</span>
+                  </span>
+                </div>
+                <button onClick={() => onRemove(transaction.id)} className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-red-50 text-[15px] font-extrabold text-red-500 ring-1 ring-red-100" aria-label={`Remove ${transaction.merchant}`}>
+                  x
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="grid gap-1">
+                  <span className="text-[10px] font-extrabold uppercase tracking-[0.08em] text-[#94A3B8]">Date</span>
+                  <input type="date" value={transaction.date} onChange={(event) => onUpdate(transaction.id, { date: event.target.value })} className="h-10 rounded-[12px] bg-[#F8FAFC] px-3 text-[12px] font-bold text-[#0F172A] outline-none ring-1 ring-[#E2E8F0] focus:ring-[#6D35F5]" />
+                </label>
+                <label className="grid gap-1">
+                  <span className="text-[10px] font-extrabold uppercase tracking-[0.08em] text-[#94A3B8]">Amount</span>
+                  <input type="number" min="0" step="0.01" value={transaction.amount} onChange={(event) => onUpdate(transaction.id, { amount: Number(event.target.value) })} className="h-10 rounded-[12px] bg-[#F8FAFC] px-3 text-[12px] font-bold text-[#0F172A] outline-none ring-1 ring-[#E2E8F0] focus:ring-[#6D35F5]" />
+                </label>
+                <label className="col-span-2 grid gap-1">
+                  <span className="text-[10px] font-extrabold uppercase tracking-[0.08em] text-[#94A3B8]">Merchant</span>
+                  <input value={transaction.merchant} onChange={(event) => onUpdate(transaction.id, { merchant: event.target.value })} className="h-10 rounded-[12px] bg-[#F8FAFC] px-3 text-[12px] font-bold text-[#0F172A] outline-none ring-1 ring-[#E2E8F0] focus:ring-[#6D35F5]" />
+                </label>
+                <label className="grid gap-1">
+                  <span className="text-[10px] font-extrabold uppercase tracking-[0.08em] text-[#94A3B8]">Category</span>
+                  <select value={transaction.category} onChange={(event) => onUpdate(transaction.id, { category: event.target.value as Transaction["category"] })} className="h-10 rounded-[12px] bg-[#F8FAFC] px-3 text-[12px] font-bold text-[#0F172A] outline-none ring-1 ring-[#E2E8F0] focus:ring-[#6D35F5]">
+                    {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+                  </select>
+                </label>
+                <label className="grid gap-1">
+                  <span className="text-[10px] font-extrabold uppercase tracking-[0.08em] text-[#94A3B8]">Type</span>
+                  <select value={transaction.direction} onChange={(event) => onUpdate(transaction.id, { direction: event.target.value as Transaction["direction"] })} className="h-10 rounded-[12px] bg-[#F8FAFC] px-3 text-[12px] font-bold text-[#0F172A] outline-none ring-1 ring-[#E2E8F0] focus:ring-[#6D35F5]">
+                    <option value="expense">Expense</option>
+                    <option value="income">Income</option>
+                  </select>
+                </label>
+              </div>
+            </article>
+          ))}
+        </div>
       </div>
-      {pendingImport.transactions.length > 7 ? <p className="mt-2 text-center text-[12px] font-bold text-[#64748B]">Showing first 7 of {pendingImport.transactions.length}. Full list appears after import.</p> : null}
 
       <div className="mt-4 grid grid-cols-[1fr_1.4fr] gap-2">
         <button onClick={onCancel} className="h-12 rounded-[16px] bg-[#F8FAFC] text-[14px] font-extrabold text-[#64748B] ring-1 ring-[#E2E8F0]">Discard</button>
@@ -2141,9 +2224,10 @@ function toTitle(value: string) {
 }
 
 function getMerchantLogoUrls(merchant: string) {
-  const normalized = normalizeLogoKey(merchant);
   const key = getLogoStorageKey(merchant);
   const badUrls = getBadLogoUrls(merchant);
+  const override = getCachedMerchantLogoOverride(merchant);
+  if (override && !badUrls.includes(override.logoUrl)) return [override.logoUrl];
 
   if (typeof window !== "undefined") {
     try {
@@ -2157,14 +2241,7 @@ function getMerchantLogoUrls(merchant: string) {
     }
   }
 
-  const match = merchantLogoDomains.find((item) => item.keywords.some((keyword) => normalized.includes(normalizeLogoKey(keyword))));
-  if (!match) return [];
-
-  const urls = [
-    `https://logo.clearbit.com/${match.domain}`,
-    `https://www.google.com/s2/favicons?domain=${match.domain}&sz=128`
-  ].filter((url) => !badUrls.includes(url));
-
+  const urls = getKnownMerchantLogoUrls(merchant).filter((url) => !badUrls.includes(url));
   if (typeof window !== "undefined") {
     try {
       window.localStorage.setItem(key, JSON.stringify(urls));
@@ -2173,6 +2250,54 @@ function getMerchantLogoUrls(merchant: string) {
     }
   }
   return urls;
+}
+
+function getKnownMerchantLogoUrls(merchant: string) {
+  const normalized = normalizeLogoKey(merchant);
+  const match = merchantLogoDomains.find((item) => item.keywords.some((keyword) => normalized.includes(normalizeLogoKey(keyword))));
+  if (!match) return [];
+  return [
+    `https://logo.clearbit.com/${match.domain}`,
+    `https://www.google.com/s2/favicons?domain=${match.domain}&sz=128`
+  ];
+}
+
+function cacheMerchantLogoOverrides(logos: MerchantLogoRecord[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem("finwise.logoOverrides", JSON.stringify(logos));
+  } catch {
+    // Logo persistence should never block app data.
+  }
+}
+
+function getCachedMerchantLogoOverride(merchant: string) {
+  if (typeof window === "undefined") return null;
+  try {
+    const logos = JSON.parse(window.localStorage.getItem("finwise.logoOverrides") ?? "[]") as MerchantLogoRecord[];
+    const key = getMerchantLogoKey(merchant);
+    return logos.find((logo) => logo.merchantKey === key) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function mergeLogoOverrides(current: MerchantLogoRecord[], transactions: Transaction[]) {
+  const byKey = new Map(current.map((logo) => [logo.merchantKey, logo]));
+  for (const transaction of transactions) {
+    const merchantKey = getMerchantLogoKey(transaction.merchant);
+    if (!merchantKey || byKey.has(merchantKey)) continue;
+    const logoUrl = getKnownMerchantLogoUrls(transaction.merchant)[0];
+    if (!logoUrl) continue;
+    byKey.set(merchantKey, {
+      merchantKey,
+      merchantName: transaction.merchant,
+      logoUrl,
+      source: "known_domain",
+      confidence: 0.86
+    });
+  }
+  return Array.from(byKey.values());
 }
 
 function rememberBadLogoUrl(merchant: string, url: string) {
@@ -2200,7 +2325,7 @@ function getBadLogoUrls(merchant: string) {
 }
 
 function getLogoStorageKey(merchant: string) {
-  return `finwise.logo.${normalizeLogoKey(merchant).replace(/\s+/g, "-") || "unknown"}`;
+  return `finwise.logo.${getMerchantLogoKey(merchant) || "unknown"}`;
 }
 
 function getBadLogoStorageKey(merchant: string) {
@@ -2209,6 +2334,10 @@ function getBadLogoStorageKey(merchant: string) {
 
 function normalizeLogoKey(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function getMerchantLogoKey(merchant: string) {
+  return normalizeLogoKey(merchant).replace(/\s+/g, "-");
 }
 
 function getLogoFallbackText(merchant: string, fallback: string) {

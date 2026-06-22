@@ -1,5 +1,5 @@
 import { getSupabase } from "@/lib/supabase-client";
-import type { MerchantRule, Transaction } from "@/lib/types";
+import type { MerchantLogoRecord, MerchantRule, Transaction } from "@/lib/types";
 
 type StatementPeriodInfo = {
   startDate: string | null;
@@ -55,6 +55,15 @@ type StatementRow = {
   file_hash: string | null;
   blob_url: string | null;
   uploaded_at: string;
+};
+
+type MerchantLogoRow = {
+  id?: string;
+  merchant_key: string;
+  merchant_name: string;
+  logo_url: string;
+  source: MerchantLogoRecord["source"];
+  confidence: number;
 };
 
 export async function loadFinWiseData(userId: string): Promise<FinWiseCloudData | null> {
@@ -150,6 +159,54 @@ export async function saveFinWiseData(userId: string, transactions: Transaction[
   }
 
   return true;
+}
+
+export async function loadMerchantLogoOverrides(userId: string): Promise<MerchantLogoRecord[]> {
+  const supabase = getSupabase();
+  if (!supabase) return [];
+
+  try {
+    const { data, error } = await supabase
+      .from("merchant_logos")
+      .select("id,merchant_key,merchant_name,logo_url,source,confidence")
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false });
+
+    if (error) throw error;
+    return ((data ?? []) as MerchantLogoRow[]).map((row) => ({
+      id: row.id,
+      merchantKey: row.merchant_key,
+      merchantName: row.merchant_name,
+      logoUrl: row.logo_url,
+      source: row.source,
+      confidence: Number(row.confidence)
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export async function saveMerchantLogoOverrides(userId: string, logos: MerchantLogoRecord[]) {
+  const supabase = getSupabase();
+  if (!supabase || !logos.length) return false;
+
+  try {
+    const { error } = await supabase.from("merchant_logos").upsert(
+      logos.map((logo) => ({
+        user_id: userId,
+        merchant_key: logo.merchantKey,
+        merchant_name: logo.merchantName,
+        logo_url: logo.logoUrl,
+        source: logo.source,
+        confidence: logo.confidence
+      })),
+      { onConflict: "user_id,merchant_key" }
+    );
+
+    return !error;
+  } catch {
+    return false;
+  }
 }
 
 async function loadLegacyData(userId: string): Promise<FinWiseCloudData | null> {
