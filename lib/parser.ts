@@ -23,6 +23,7 @@ const descriptionKeys = ["description", "details", "merchant", "narrative", "tra
 const amountKeys = ["amount", "transaction amount", "debit", "credit", "paid out", "paid in", "withdrawal", "deposit"];
 const debitKeys = ["debit", "paid out", "withdrawal", "withdrawals", "debit amount"];
 const creditKeys = ["credit", "paid in", "deposit", "deposits", "credit amount"];
+const maxPersonalTransactionAmount = 1_000_000;
 
 export async function parseStatementFile(file: File, bank: string, rules: MerchantRule[] = []) {
   const extension = file.name.split(".").pop()?.toLowerCase();
@@ -145,17 +146,24 @@ function parsePdfText(text: string): RawRow[] {
     if (!dateMatch) continue;
 
     const amounts = [...line.matchAll(amountPattern)].map((match) => match[0]).filter((value) => /\d/.test(value));
+    if (!amounts.length) continue;
     const amount = amounts.at(-1);
     if (!amount) continue;
 
-    const description = line
-      .replace(dateMatch[0], " ")
-      .replace(amount, " ")
-      .replace(/\s+/g, " ")
-      .trim();
+    const description = amounts.slice(-3).reduce(
+      (current, token) => current.replace(token, " "),
+      line.replace(dateMatch[0], " ")
+    ).replace(/\s+/g, " ").trim();
 
+    if (isNonTransactionDescription(description)) continue;
     if (description.length < 2) continue;
-    rows.push({ date: dateMatch[0], description, amount });
+
+    if (amounts.length >= 3) {
+      const [debit, credit, balance] = amounts.slice(-3);
+      rows.push({ date: dateMatch[0], description, debit, credit, balance });
+    } else {
+      rows.push({ date: dateMatch[0], description, amount });
+    }
   }
 
   return rows;
@@ -239,10 +247,13 @@ function normalizeRow(row: RawRow, bank: string, currency: string, rules: Mercha
   const amountValue = getAmount(row);
 
   if (!date || !descriptionRaw || amountValue === null) return null;
+  if (isNonTransactionDescription(descriptionRaw)) return null;
 
   const normalizedDate = normalizeDate(date);
+  if (!isIsoDate(normalizedDate)) return null;
   const direction: TransactionDirection = amountValue >= 0 ? "income" : "expense";
   const amount = Math.abs(amountValue);
+  if (!isPlausibleTransactionAmount(amount, descriptionRaw, direction)) return null;
   const merchant = cleanMerchant(descriptionRaw);
   const result = categorizeMerchant(descriptionRaw, rules, direction);
   const duplicateHash = crypto.createHash("sha256").update([normalizedDate, amount, descriptionRaw, bank].join("|")).digest("hex");
@@ -292,9 +303,10 @@ function getAmount(row: RawRow) {
 
 function parseMoney(value?: string) {
   if (!value) return null;
+  if (/^\s*-?\s*$/.test(value)) return null;
   const isParenthesized = /^\s*\(.*\)\s*$/.test(value);
   const isNegative = /-/.test(value) || isParenthesized;
-  const normalized = value.replace(/[(),\s+-]/g, "").replace(/[A-Z]{2,3}/gi, "");
+  const normalized = value.replace(/(?:QAR|QR|USD|EUR|GBP)/gi, "").replace(/[(),\s+-]/g, "");
   const parsed = Number(normalized);
   if (!Number.isFinite(parsed)) return null;
   return isNegative ? -Math.abs(parsed) : parsed;
@@ -324,4 +336,19 @@ function normalizeHeader(header: string) {
     .toLowerCase()
     .replace(/^\ufeff/, "")
     .replace(/\s+/g, " ");
+}
+
+function isNonTransactionDescription(description: string) {
+  return /\b(opening balance|closing balance|available balance|current balance|ledger balance|running balance|brought forward|carried forward|total debit|total credit|total amount|statement period|account number|iban|customer id|page \d+|date doc|description value date|balance)\b/i.test(description);
+}
+
+function isPlausibleTransactionAmount(amount: number, description: string, direction: TransactionDirection) {
+  if (!Number.isFinite(amount) || amount <= 0) return false;
+  if (amount > maxPersonalTransactionAmount) return false;
+  if (direction === "income" && /\b(salary|bonus|allowance|payroll)\b/i.test(description)) return amount <= maxPersonalTransactionAmount;
+  return amount <= maxPersonalTransactionAmount;
+}
+
+function isIsoDate(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }

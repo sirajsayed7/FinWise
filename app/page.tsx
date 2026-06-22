@@ -204,6 +204,13 @@ type LocalSnapshot = {
   savedAt: string;
 };
 
+type PendingImport = {
+  statementId?: string;
+  fileName: string;
+  period: StatementPeriodInfo | null;
+  transactions: Transaction[];
+};
+
 export default function FinWiseApp() {
   const [activeView, setActiveView] = useState<ActiveView>("home");
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -213,6 +220,7 @@ export default function FinWiseApp() {
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [cloudLoaded, setCloudLoaded] = useState(!isSupabaseConfigured);
   const [syncStatus, setSyncStatus] = useState(isSupabaseConfigured ? "Connect your account" : "Local mode");
+  const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
   const transactionCount = transactions.length;
 
   useEffect(() => {
@@ -324,6 +332,7 @@ export default function FinWiseApp() {
   function clearUploads() {
     setTransactions([]);
     setLatestPeriod(null);
+    setPendingImport(null);
     setUploadStatus("No uploads yet");
     window.localStorage.removeItem("finwise.transactions");
     window.localStorage.removeItem("finwise.latestPeriod");
@@ -384,23 +393,43 @@ export default function FinWiseApp() {
 
     const imported = sanitizeTransactions(payload.transactions ?? []);
     const statementId = payload.statement?.id ?? imported[0]?.statementId;
-    const duplicateExists = Boolean(statementId && transactions.some((transaction) => transaction.statementId === statementId));
-    if (duplicateExists) {
-      const shouldReplace = window.confirm("This statement appears to have already been uploaded. Replace the existing statement data?");
-      if (!shouldReplace) {
-        setUploadStatus("Duplicate statement ignored");
-        event.target.value = "";
-        return;
-      }
+    if (!imported.length) {
+      setUploadStatus("No usable transactions found after filtering balances and summary rows.");
+      event.target.value = "";
+      return;
     }
+    setPendingImport({
+      statementId,
+      fileName: payload.statement?.fileName ?? file.name,
+      period: payload.statement?.period ?? null,
+      transactions: imported
+    });
+    const duplicateExists = Boolean(statementId && transactions.some((transaction) => transaction.statementId === statementId));
+    setUploadStatus(duplicateExists ? `${imported.length} transactions ready. Confirm to replace the existing statement.` : `${imported.length} transactions ready for review`);
+    event.target.value = "";
+    setActiveView("upload");
+  }
+
+  function confirmPendingImport() {
+    if (!pendingImport) return;
+    const imported = sanitizeTransactions(pendingImport.transactions);
+    const statementId = pendingImport.statementId ?? imported[0]?.statementId;
     setTransactions((current) => dedupe([...imported, ...current.filter((transaction) => transaction.statementId !== statementId)]));
     setUploadStatus(`${imported.length} transactions saved`);
-    if (payload.statement?.period) {
-      setLatestPeriod(payload.statement.period);
-      window.localStorage.setItem("finwise.latestPeriod", JSON.stringify(payload.statement.period));
+    if (pendingImport.period) {
+      setLatestPeriod(pendingImport.period);
+      window.localStorage.setItem("finwise.latestPeriod", JSON.stringify(pendingImport.period));
     }
-    event.target.value = "";
+    setPendingImport(null);
     setActiveView("transactions");
+  }
+
+  function removePendingTransaction(transactionId: string) {
+    setPendingImport((current) => {
+      if (!current) return current;
+      const nextTransactions = current.transactions.filter((transaction) => transaction.id !== transactionId);
+      return { ...current, transactions: nextTransactions };
+    });
   }
 
   if (!authReady) {
@@ -418,7 +447,7 @@ export default function FinWiseApp() {
           <HomeDashboard transactions={transactions} latestPeriod={latestPeriod} uploadStatus={uploadStatus} transactionCount={transactionCount} onUpload={uploadStatement} setActiveView={setActiveView} />
         ) : null}
         {activeView === "transactions" ? <TransactionsPage transactions={transactions} setTransactions={setTransactions} setActiveView={setActiveView} onClearUploads={clearUploads} /> : null}
-        {activeView === "upload" ? <UploadPage latestPeriod={latestPeriod} uploadStatus={uploadStatus} onUpload={uploadStatement} onClearUploads={clearUploads} hasUploads={transactionCount > 0} /> : null}
+        {activeView === "upload" ? <UploadPage latestPeriod={latestPeriod} uploadStatus={uploadStatus} onUpload={uploadStatement} onClearUploads={clearUploads} hasUploads={transactionCount > 0} pendingImport={pendingImport} onConfirmImport={confirmPendingImport} onCancelImport={() => setPendingImport(null)} onRemovePendingTransaction={removePendingTransaction} /> : null}
         {activeView === "insights" ? <InsightsPage transactions={transactions} /> : null}
         {activeView === "settings" ? <SettingsPage setActiveView={setActiveView} authEmail={authUser?.email ?? null} syncStatus={syncStatus} onSignOut={signOut} /> : null}
         {activeView === "statements" ? <StatementsPageV2 transactions={transactions} latestPeriod={latestPeriod} setActiveView={setActiveView} onClearUploads={clearUploads} onClearStatement={clearStatement} /> : null}
@@ -917,7 +946,27 @@ function ReviewQueueRow({ row, onCorrect }: { row: Transaction; onCorrect: () =>
   );
 }
 
-function UploadPage({ latestPeriod, uploadStatus, onUpload, onClearUploads, hasUploads }: { latestPeriod: StatementPeriodInfo | null; uploadStatus: string; onUpload: (event: ChangeEvent<HTMLInputElement>) => void; onClearUploads: () => void; hasUploads: boolean }) {
+function UploadPage({
+  latestPeriod,
+  uploadStatus,
+  onUpload,
+  onClearUploads,
+  hasUploads,
+  pendingImport,
+  onConfirmImport,
+  onCancelImport,
+  onRemovePendingTransaction
+}: {
+  latestPeriod: StatementPeriodInfo | null;
+  uploadStatus: string;
+  onUpload: (event: ChangeEvent<HTMLInputElement>) => void;
+  onClearUploads: () => void;
+  hasUploads: boolean;
+  pendingImport: PendingImport | null;
+  onConfirmImport: () => void;
+  onCancelImport: () => void;
+  onRemovePendingTransaction: (transactionId: string) => void;
+}) {
   return (
     <section>
       <PageHeader title="Upload Statement" subtitle="Upload a PDF, CSV, or Excel statement to import your transactions." />
@@ -940,7 +989,65 @@ function UploadPage({ latestPeriod, uploadStatus, onUpload, onClearUploads, hasU
           <button onClick={onClearUploads} className="mt-4 h-12 w-full rounded-[16px] bg-red-50 text-[15px] font-extrabold text-red-500 ring-1 ring-red-100">Clear imported data</button>
         ) : null}
       </div>
+      {pendingImport ? (
+        <ImportReviewCard
+          pendingImport={pendingImport}
+          onConfirm={onConfirmImport}
+          onCancel={onCancelImport}
+          onRemove={onRemovePendingTransaction}
+        />
+      ) : null}
       <StatusCard title="Processing status" body={uploadStatus} />
+    </section>
+  );
+}
+
+function ImportReviewCard({ pendingImport, onConfirm, onCancel, onRemove }: { pendingImport: PendingImport; onConfirm: () => void; onCancel: () => void; onRemove: (transactionId: string) => void }) {
+  const summary = getSummary(pendingImport.transactions);
+  const reviewCount = pendingImport.transactions.filter((transaction) => transaction.needsReview).length;
+
+  return (
+    <section className="mt-4 rounded-[24px] bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[12px] font-extrabold uppercase tracking-[0.12em] text-[#6D35F5]">Review before saving</p>
+          <h2 className="mt-1 truncate text-[18px] font-extrabold tracking-[-0.02em] text-[#0F172A]">{pendingImport.fileName}</h2>
+          <p className="mt-1 text-[12.5px] font-semibold text-[#64748B]">{pendingImport.period?.label ?? "Detected period"} - {pendingImport.transactions.length} transactions</p>
+        </div>
+        {reviewCount ? <span className="shrink-0 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-extrabold text-amber-600">{reviewCount} review</span> : null}
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <MiniMetric label="Income" value={`QAR ${formatDisplayAmount(summary.income)}`} tone="green" />
+        <MiniMetric label="Spent" value={`QAR ${formatDisplayAmount(summary.expenses)}`} tone="red" />
+        <MiniMetric label="Net" value={`QAR ${formatDisplayAmount(summary.balance)}`} />
+      </div>
+
+      <div className="mt-3 divide-y divide-[#EEF2F7] rounded-[18px] bg-[#F8FAFC] px-3">
+        {pendingImport.transactions.slice(0, 7).map((transaction) => (
+          <div key={transaction.id} className="flex items-center gap-2 py-2.5">
+            <span className={`grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full text-[12px] font-extrabold ${categoryAvatarStyles[transaction.category] ?? categoryAvatarStyles.Other}`}>
+              <MerchantLogo merchant={transaction.merchant} fallback={transaction.merchant.slice(0, 1)} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[12.5px] font-extrabold text-[#0F172A]">{transaction.merchant}</span>
+              <span className="block truncate text-[11px] font-semibold text-[#64748B]">{transaction.date} - {transaction.category}</span>
+            </span>
+            <span className={transaction.direction === "income" ? "whitespace-nowrap text-[12px] font-extrabold text-emerald-500" : "whitespace-nowrap text-[12px] font-extrabold text-red-500"}>
+              {transaction.direction === "income" ? "+" : "-"}QAR {formatAmount(transaction.amount)}
+            </span>
+            <button onClick={() => onRemove(transaction.id)} className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white text-[16px] font-extrabold text-[#94A3B8] ring-1 ring-[#E2E8F0]" aria-label={`Remove ${transaction.merchant}`}>
+              x
+            </button>
+          </div>
+        ))}
+      </div>
+      {pendingImport.transactions.length > 7 ? <p className="mt-2 text-center text-[12px] font-bold text-[#64748B]">Showing first 7 of {pendingImport.transactions.length}. Full list appears after import.</p> : null}
+
+      <div className="mt-4 grid grid-cols-[1fr_1.4fr] gap-2">
+        <button onClick={onCancel} className="h-12 rounded-[16px] bg-[#F8FAFC] text-[14px] font-extrabold text-[#64748B] ring-1 ring-[#E2E8F0]">Discard</button>
+        <button disabled={!pendingImport.transactions.length} onClick={onConfirm} className="h-12 rounded-[16px] bg-[#6D35F5] text-[14px] font-extrabold text-white shadow-lg shadow-[#6D35F5]/20 disabled:opacity-50">Confirm import</button>
+      </div>
     </section>
   );
 }
@@ -1926,11 +2033,16 @@ function dedupe(transactions: Transaction[]) {
 
 function sanitizeTransactions(transactions: Transaction[]) {
   return transactions.filter((transaction) => {
-    const amountIsValid = Number.isFinite(transaction.amount) && transaction.amount >= 0 && transaction.amount < 1_000_000;
+    const amountIsValid = Number.isFinite(transaction.amount) && transaction.amount > 0 && transaction.amount < 1_000_000;
     const dateIsValid = /^\d{4}-\d{2}-\d{2}$/.test(transaction.date);
     const merchantIsValid = transaction.merchant.trim().length > 0;
-    return amountIsValid && dateIsValid && merchantIsValid;
+    const descriptionIsValid = !isBalanceLikeTransaction(transaction.descriptionRaw) && !isBalanceLikeTransaction(transaction.merchant);
+    return amountIsValid && dateIsValid && merchantIsValid && descriptionIsValid;
   });
+}
+
+function isBalanceLikeTransaction(value: string) {
+  return /\b(opening balance|closing balance|available balance|current balance|ledger balance|running balance|brought forward|carried forward|total debit|total credit|statement period|account number|iban)\b/i.test(value);
 }
 
 function isDemoDataset(transactions: Transaction[]) {
