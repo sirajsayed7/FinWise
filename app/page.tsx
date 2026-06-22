@@ -5,8 +5,9 @@ import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, Tooltip, XAxis, YA
 import type { User } from "@supabase/supabase-js";
 import { categories } from "@/lib/categorization";
 import { demoTransactions } from "@/lib/demo-data";
+import { loadFinWiseData, saveFinWiseData } from "@/lib/finwise-db";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase-client";
-import type { Transaction } from "@/lib/types";
+import type { MerchantRule, Transaction } from "@/lib/types";
 
 type ActiveView = "home" | "transactions" | "upload" | "insights" | "settings" | "statements";
 type SpendingPeriod = "This Month" | "Last Month" | "Year";
@@ -23,12 +24,6 @@ type StatementPeriodInfo = {
   endDate: string | null;
   days: number;
   label: string;
-};
-
-type CloudUserData = {
-  transactions: Transaction[] | null;
-  latest_period: StatementPeriodInfo | null;
-  merchant_rules: Array<{ pattern: string; category: Transaction["category"] }> | null;
 };
 
 const spendingByPeriod: Record<SpendingPeriod, SpendingRow[]> = {
@@ -1565,38 +1560,18 @@ function formatPeriodDates(period: StatementPeriodInfo) {
 }
 
 async function loadCloudData(userId: string) {
-  const supabase = getSupabase();
-  if (!supabase) return null;
-
-  const { data, error } = await supabase
-    .from("finwise_user_data")
-    .select("transactions,latest_period,merchant_rules")
-    .eq("user_id", userId)
-    .maybeSingle<CloudUserData>();
-
-  if (error) throw error;
-  return data;
+  return loadFinWiseData(userId);
 }
 
 async function saveCloudData(userId: string, transactions: Transaction[], latestPeriod: StatementPeriodInfo | null) {
-  const supabase = getSupabase();
-  if (!supabase) return false;
-
-  let merchantRules: unknown[] = [];
+  let merchantRules: MerchantRule[] = [];
   try {
-    merchantRules = JSON.parse(window.localStorage.getItem("finwise.merchantRules") ?? "[]") as unknown[];
+    merchantRules = JSON.parse(window.localStorage.getItem("finwise.merchantRules") ?? "[]") as MerchantRule[];
   } catch {
     merchantRules = [];
   }
 
-  const { error } = await supabase.from("finwise_user_data").upsert({
-    user_id: userId,
-    transactions,
-    latest_period: latestPeriod,
-    merchant_rules: merchantRules
-  });
-
-  return !error;
+  return saveFinWiseData(userId, transactions, latestPeriod, merchantRules);
 }
 
 function saveMerchantRule(transaction: Transaction, category: Transaction["category"]) {

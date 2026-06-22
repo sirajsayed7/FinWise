@@ -21,6 +21,7 @@ export type CategorizationSource = "user_rule" | "default_rule" | "ai" | "fallba
 
 export type Transaction = {
   id: string;
+  statementId?: string;
   date: string;
   bank: string;
   descriptionRaw: string;
@@ -38,8 +39,47 @@ export type Transaction = {
 };
 
 export type MerchantRule = {
+  id?: string;
   pattern: string;
   category: CategoryName;
+  merchant?: string;
+  subcategory?: string;
+};
+
+export type StatementRecord = {
+  id: string;
+  userId?: string;
+  fileName: string;
+  bank: string;
+  currency: string;
+  status: "processed" | "failed" | "review";
+  transactionCount: number;
+  totalIncome: number;
+  totalExpenses: number;
+  periodStart: string | null;
+  periodEnd: string | null;
+  periodDays: number;
+  periodLabel: string;
+  fileHash?: string | null;
+  blobUrl?: string | null;
+  uploadedAt: string;
+};
+
+export type MerchantLogoRecord = {
+  id?: string;
+  merchantKey: string;
+  merchantName: string;
+  logoUrl: string;
+  source: "known_domain" | "favicon" | "manual" | "fallback";
+  confidence: number;
+};
+
+export type BudgetRecord = {
+  id?: string;
+  category: CategoryName;
+  amount: number;
+  currency: string;
+  period: "monthly" | "weekly";
 };
 
 export type DashboardSummary = {
