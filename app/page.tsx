@@ -1022,16 +1022,18 @@ function TransactionListRow({ row, onOpen, onActions }: { row: Transaction; onOp
 
 function ReviewQueueRow({ row, onCorrect }: { row: Transaction; onCorrect: () => void }) {
   return (
-    <button onClick={onCorrect} className="flex w-full items-center gap-3 py-2.5 text-left">
-      <span className={`grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full text-[14px] font-extrabold ${categoryAvatarStyles[row.category] ?? categoryAvatarStyles.Other}`}>
+    <div className="flex w-full items-center gap-3 py-2.5 text-left">
+      <button type="button" onClick={onCorrect} className={`grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full text-[14px] font-extrabold ${categoryAvatarStyles[row.category] ?? categoryAvatarStyles.Other}`} aria-label={`Fix ${row.merchant}`}>
         <MerchantLogo merchant={row.merchant} fallback={row.merchant.slice(0, 1) || "?"} />
-      </span>
-      <span className="min-w-0 flex-1">
+      </button>
+      <button type="button" onClick={onCorrect} className="min-w-0 flex-1 text-left">
         <span className="block truncate text-[13.5px] font-extrabold text-[#0F172A]">{row.merchant}</span>
         <span className="mt-0.5 block truncate text-[11.5px] font-semibold text-[#64748B]">{row.category} - {Math.round(row.confidence * 100)}% confidence</span>
-      </span>
-      <span className="rounded-full bg-[#6D35F5] px-3 py-1.5 text-[12px] font-extrabold text-white">Fix</span>
-    </button>
+      </button>
+      <button type="button" onClick={onCorrect} className="shrink-0 rounded-full bg-[#6D35F5] px-3 py-1.5 text-[12px] font-extrabold text-white shadow-md shadow-[#6D35F5]/20 transition active:scale-[0.96]">
+        Fix
+      </button>
+    </div>
   );
 }
 
