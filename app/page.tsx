@@ -155,13 +155,6 @@ const insightCategories = [
   { label: "Others", amount: 709, percent: 8.4, color: "#CBD5E1" }
 ];
 
-const merchantInsights = [
-  { merchant: "Carrefour", amount: 1245.5, change: "+35%", up: true, color: "bg-blue-50 text-blue-600" },
-  { merchant: "Talabat", amount: 1102.3, change: "+32%", up: true, color: "bg-orange-500 text-white" },
-  { merchant: "Lulu Hypermarket", amount: 897.45, change: "-5%", up: false, color: "bg-emerald-50 text-emerald-600" },
-  { merchant: "Uber", amount: 542.2, change: "+12%", up: true, color: "bg-slate-900 text-white" }
-];
-
 const merchantLogoDomains = [
   { keywords: ["qnb"], domain: "qnb.com" },
   { keywords: ["doha bank", "dobank"], domain: "dohabank.com.qa" },
@@ -193,14 +186,6 @@ const merchantLogoDomains = [
   { keywords: ["mcdonald"], domain: "mcdonalds.com" },
   { keywords: ["spotify"], domain: "spotify.com" },
   { keywords: ["youtube"], domain: "youtube.com" }
-];
-
-const trendRows = [
-  { date: "Jun 1", amount: 900 },
-  { date: "Jun 8", amount: 3400 },
-  { date: "Jun 15", amount: 6100 },
-  { date: "Jun 22", amount: 7600 },
-  { date: "Jun 30", amount: 9450 }
 ];
 
 type LocalSnapshot = {
@@ -1177,12 +1162,21 @@ function ImportReviewCard({ pendingImport, onConfirm, onCancel, onRemove, onUpda
 
 function InsightsPage({ transactions }: { transactions: Transaction[] }) {
   const [sheet, setSheet] = useState<string | null>(null);
+  const [period, setPeriod] = useState<SpendingPeriod>("This Month");
   const viewportWidth = useAppViewportWidth();
   const trendChartWidth = Math.max(286, Math.min(360, viewportWidth - 74));
-  const dynamicTrendRows = useMemo(() => buildTrendRows(transactions), [transactions]);
-  const dynamicInsightCategories = useMemo(() => getInsightCategories(transactions), [transactions]);
-  const dynamicMerchantInsights = useMemo(() => getMerchantInsights(transactions), [transactions]);
+  const periodTransactions = useMemo(() => filterByPeriod(transactions, period), [transactions, period]);
+  const dynamicTrendRows = useMemo(() => buildTrendRows(transactions, period), [transactions, period]);
+  const dynamicInsightCategories = useMemo(() => getInsightCategories(transactions, period), [transactions, period]);
+  const dynamicMerchantInsights = useMemo(() => getMerchantInsights(transactions, period), [transactions, period]);
+  const comparison = useMemo(() => getPeriodComparison(transactions, period), [transactions, period]);
+  const savings = useMemo(() => getFlexibleSavingsOpportunity(transactions, period), [transactions, period]);
+  const recommendations = useMemo(() => getRecommendations(transactions, period), [transactions, period]);
   const topCategory = dynamicInsightCategories[0];
+  const periodCopy = period === "This Month" ? "this month" : period === "Last Month" ? "last month" : "this year";
+  const periodEmptyMessage = transactions.length && !periodTransactions.length
+    ? `No transactions found for ${periodCopy}. Try a different period or upload a new statement.`
+    : undefined;
 
   return (
     <section>
@@ -1192,11 +1186,14 @@ function InsightsPage({ transactions }: { transactions: Transaction[] }) {
           <h1 className="text-[31px] font-extrabold leading-none tracking-[-0.045em] text-[#0F172A]">Analytics</h1>
           <p className="mt-2 text-[14px] font-medium leading-snug text-[#64748B]">Smart analysis of your spending habits.</p>
         </div>
-        <button onClick={() => setSheet("Insight period")} className="flex h-11 shrink-0 items-center gap-2 rounded-[15px] bg-white px-3 text-[13px] font-bold text-[#334155] shadow-sm ring-1 ring-[#E2E8F0]">
-          <CalendarIcon />
-          This Month
-          <ChevronDownIcon />
-        </button>
+      </div>
+
+      <div className="mb-4 grid h-10 grid-cols-3 rounded-[15px] bg-white p-1 text-[12.5px] font-semibold text-[#64708A] shadow-sm ring-1 ring-[#E2E8F0]">
+        {periods.map((item) => (
+          <button key={item} onClick={() => setPeriod(item)} className={item === period ? "rounded-[12px] bg-[#633EF2] px-2 text-white shadow-md shadow-[#633EF2]/25" : "rounded-[12px] px-2"}>
+            {item}
+          </button>
+        ))}
       </div>
 
       <section className="rounded-[24px] bg-[#F3EDFF] p-4 shadow-[0_10px_24px_rgba(109,53,245,0.075)] ring-1 ring-[#EDE7FF] min-[391px]:p-[18px]">
@@ -1204,103 +1201,151 @@ function InsightsPage({ transactions }: { transactions: Transaction[] }) {
           <RobotIcon />
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-extrabold text-[#6D35F5]">AI Insight</p>
-            <h2 className="mt-1 text-[17px] font-extrabold leading-[1.3] tracking-[-0.02em] text-[#0F172A] min-[390px]:text-[18px]">{topCategory?.label ?? "Spending"} is your top category.</h2>
-            <p className="mt-1.5 text-[13px] font-medium leading-[1.45] text-[#475569]">You&apos;ve spent QAR {formatAmount(topCategory?.amount ?? 0)} here. Review low-confidence transactions to improve future categorization.</p>
+            {topCategory ? (
+              <>
+                <h2 className="mt-1 text-[17px] font-extrabold leading-[1.3] tracking-[-0.02em] text-[#0F172A] min-[390px]:text-[18px]">{topCategory.label} is your top category.</h2>
+                <p className="mt-1.5 text-[13px] font-medium leading-[1.45] text-[#475569]">You&apos;ve spent QAR {formatAmount(topCategory.amount)} here {periodCopy}. Review low-confidence transactions to improve future categorization.</p>
+              </>
+            ) : (
+              <p className="mt-1.5 text-[13px] font-medium leading-[1.45] text-[#475569]">No spending found for {periodCopy} yet. Upload a statement or pick a different period to see insights here.</p>
+            )}
           </div>
-          <button onClick={() => setSheet("AI insight details")} className="hidden h-10 shrink-0 rounded-[14px] border border-[#C4B5FD] bg-white/70 px-4 text-[13px] font-extrabold text-[#5A36ED] min-[430px]:block">View Details</button>
+          {topCategory ? <button onClick={() => setSheet("AI insight details")} className="hidden h-10 shrink-0 rounded-[14px] border border-[#C4B5FD] bg-white/70 px-4 text-[13px] font-extrabold text-[#5A36ED] min-[430px]:block">View Details</button> : null}
         </div>
-        <button onClick={() => setSheet("AI insight details")} className="mt-3 h-10 rounded-[14px] border border-[#C4B5FD] bg-white/70 px-4 text-[13px] font-extrabold text-[#5A36ED] min-[430px]:hidden">View Details</button>
+        {topCategory ? <button onClick={() => setSheet("AI insight details")} className="mt-3 h-10 rounded-[14px] border border-[#C4B5FD] bg-white/70 px-4 text-[13px] font-extrabold text-[#5A36ED] min-[430px]:hidden">View Details</button> : null}
       </section>
 
       <div className="mt-3 grid grid-cols-1 gap-3">
-        <InsightPanel title="Monthly Trend" aside={<span className="text-[13px] font-bold text-emerald-500 sm:text-[11px]">Up 15.3% vs last month</span>}>
-          <div className="mt-3 flex h-[160px] justify-center overflow-hidden">
-            <AreaChart width={trendChartWidth} height={160} data={dynamicTrendRows} margin={{ top: 8, right: 2, left: -8, bottom: 0 }} tabIndex={-1} accessibilityLayer={false}>
-              <defs>
-                <linearGradient id="trendFill" x1="0" x2="0" y1="0" y2="1">
-                  <stop offset="0%" stopColor="#6D35F5" stopOpacity={0.25} />
-                  <stop offset="100%" stopColor="#6D35F5" stopOpacity={0.02} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid stroke="#EEF2F7" vertical={false} />
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#64748B" }} axisLine={false} tickLine={false} interval="preserveStartEnd" tickMargin={7} padding={{ left: 4, right: 22 }} />
-              <YAxis tick={{ fontSize: 10, fill: "#64748B" }} axisLine={false} tickLine={false} width={34} ticks={[0, 2000, 4000, 6000, 8000, 10000]} tickFormatter={(value) => (value === 0 ? "0" : `${Number(value) / 1000}K`)} />
-              <Tooltip cursor={false} formatter={(value) => [`QAR ${formatAmount(Number(value))}`, "Spent"]} labelStyle={{ color: "#0F172A", fontWeight: 700 }} contentStyle={{ border: 0, borderRadius: 14, boxShadow: "0 12px 28px rgba(15,23,42,0.12)" }} wrapperStyle={{ outline: "none", border: 0 }} />
-              <Area type="linear" dataKey="amount" stroke="#6D35F5" strokeWidth={3} fill="url(#trendFill)" activeDot={{ r: 5, fill: "#6D35F5", stroke: "#DDD6FE", strokeWidth: 5 }} dot={{ r: 3.4, fill: "#6D35F5", stroke: "#FFFFFF", strokeWidth: 2 }} />
-            </AreaChart>
-          </div>
+        <InsightPanel
+          title="Monthly Trend"
+          aside={
+            comparison.hasData && comparison.percentChange !== null ? (
+              <span className={comparison.percentChange >= 0 ? "text-[13px] font-bold text-red-500 sm:text-[11px]" : "text-[13px] font-bold text-emerald-500 sm:text-[11px]"}>
+                {comparison.percentChange >= 0 ? "Up" : "Down"} {Math.abs(comparison.percentChange).toFixed(1)}% vs last month
+              </span>
+            ) : (
+              <span className="text-[12px] font-semibold text-[#94A3B8] sm:text-[11px]">Not enough data yet</span>
+            )
+          }
+        >
+          {dynamicTrendRows.length ? (
+            <div className="mt-3 flex h-[160px] justify-center overflow-hidden">
+              <AreaChart width={trendChartWidth} height={160} data={dynamicTrendRows} margin={{ top: 8, right: 2, left: -8, bottom: 0 }} tabIndex={-1} accessibilityLayer={false}>
+                <defs>
+                  <linearGradient id="trendFill" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0%" stopColor="#6D35F5" stopOpacity={0.25} />
+                    <stop offset="100%" stopColor="#6D35F5" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="#EEF2F7" vertical={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#64748B" }} axisLine={false} tickLine={false} interval="preserveStartEnd" tickMargin={7} padding={{ left: 4, right: 22 }} />
+                <YAxis tick={{ fontSize: 10, fill: "#64748B" }} axisLine={false} tickLine={false} width={34} tickFormatter={(value) => (Number(value) === 0 ? "0" : `${Number(value) / 1000}K`)} />
+                <Tooltip cursor={false} formatter={(value) => [`QAR ${formatAmount(Number(value))}`, "Spent"]} labelStyle={{ color: "#0F172A", fontWeight: 700 }} contentStyle={{ border: 0, borderRadius: 14, boxShadow: "0 12px 28px rgba(15,23,42,0.12)" }} wrapperStyle={{ outline: "none", border: 0 }} />
+                <Area type="linear" dataKey="amount" stroke="#6D35F5" strokeWidth={3} fill="url(#trendFill)" activeDot={{ r: 5, fill: "#6D35F5", stroke: "#DDD6FE", strokeWidth: 5 }} dot={{ r: 3.4, fill: "#6D35F5", stroke: "#FFFFFF", strokeWidth: 2 }} />
+              </AreaChart>
+            </div>
+          ) : (
+            <div className="mt-3 rounded-[16px] bg-[#F8FAFC] px-4 py-7 text-center text-[13px] font-semibold text-[#64748B]">
+              No spending trend for {periodCopy} yet.
+            </div>
+          )}
         </InsightPanel>
 
         <InsightPanel title="Top Spending Categories" aside={<button onClick={() => setSheet("All categories")} className="h-8 shrink-0 whitespace-nowrap rounded-[10px] border border-[#C4B5FD] px-3 text-[12px] font-extrabold text-[#5A36ED]">View All</button>}>
-          <div className="mt-3 space-y-2.5">
-            {dynamicInsightCategories.slice(0, 5).map((item, index) => (
-              <button key={item.label} onClick={() => setSheet(`${item.label} category`)} className="block w-full text-left">
-                <div className="grid grid-cols-[18px_12px_minmax(86px,112px)_minmax(46px,1fr)_78px] items-center gap-2">
-                  <span className="text-[12px] font-bold text-[#0F172A]">{index + 1}</span>
-                  <span className="h-3 w-3 rounded-full" style={{ backgroundColor: item.color }} />
-                  <span className="min-w-0 truncate text-[12.5px] font-semibold text-[#334155] min-[391px]:text-[13px]">{item.label}</span>
-                  <span className="h-1.5 rounded-full bg-slate-100">
-                    <span className="block h-full rounded-full bg-[#6D35F5]" style={{ width: `${Math.min(100, item.percent * 3.2)}%` }} />
-                  </span>
-                  <span className="justify-self-end whitespace-nowrap text-[11.5px] font-medium text-[#64748B] min-[391px]:text-[12px]">QAR {formatAmount(item.amount)}</span>
-                </div>
-              </button>
-            ))}
-          </div>
+          {dynamicInsightCategories.length ? (
+            <div className="mt-3 space-y-2.5">
+              {dynamicInsightCategories.slice(0, 5).map((item, index) => (
+                <button key={item.label} onClick={() => setSheet(`${item.label} category`)} className="block w-full text-left">
+                  <div className="grid grid-cols-[18px_12px_minmax(86px,112px)_minmax(46px,1fr)_78px] items-center gap-2">
+                    <span className="text-[12px] font-bold text-[#0F172A]">{index + 1}</span>
+                    <span className="h-3 w-3 rounded-full" style={{ backgroundColor: item.color }} />
+                    <span className="min-w-0 truncate text-[12.5px] font-semibold text-[#334155] min-[391px]:text-[13px]">{item.label}</span>
+                    <span className="h-1.5 rounded-full bg-slate-100">
+                      <span className="block h-full rounded-full bg-[#6D35F5]" style={{ width: `${Math.min(100, item.percent * 3.2)}%` }} />
+                    </span>
+                    <span className="justify-self-end whitespace-nowrap text-[11.5px] font-medium text-[#64748B] min-[391px]:text-[12px]">QAR {formatAmount(item.amount)}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-3 rounded-[16px] bg-[#F8FAFC] px-4 py-5 text-center text-[13px] font-semibold text-[#64748B]">
+              No categorized spending for {periodCopy} yet.
+            </div>
+          )}
         </InsightPanel>
 
         <InsightPanel title="Merchant Insights" aside={<button onClick={() => setSheet("Merchant insights")} className="h-8 rounded-[10px] border border-[#C4B5FD] px-3 text-[12px] font-extrabold text-[#5A36ED]">View All</button>}>
-          <div className="mt-3 divide-y divide-[#EEF2F7]">
-            {dynamicMerchantInsights.map((item) => (
-              <button key={item.merchant} onClick={() => setSheet(`${item.merchant} insight`)} className="flex w-full items-center gap-3 py-2.5 text-left">
-                <span className={`grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full text-[13px] font-extrabold ${item.color}`}>
-                  <MerchantLogo merchant={item.merchant} fallback={item.merchant[0]} />
-                </span>
-                <span className="min-w-0 flex-1 text-[13px] font-bold text-[#0F172A]">{item.merchant}</span>
-                <span className="text-right">
-                  <span className="block whitespace-nowrap text-[12px] font-semibold text-[#334155]">QAR {formatAmount(item.amount)}</span>
-                  <span className={item.up ? "block text-[12px] font-bold text-red-500" : "block text-[12px] font-bold text-emerald-500"}>{item.up ? "Up" : "Down"} {item.change.replace("+", "").replace("-", "")}</span>
-                </span>
-                <ChevronIcon />
-              </button>
-            ))}
-          </div>
+          {dynamicMerchantInsights.length ? (
+            <div className="mt-3 divide-y divide-[#EEF2F7]">
+              {dynamicMerchantInsights.map((item) => (
+                <button key={item.merchant} onClick={() => setSheet(`${item.merchant} insight`)} className="flex w-full items-center gap-3 py-2.5 text-left">
+                  <span className={`grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full text-[13px] font-extrabold ${item.color}`}>
+                    <MerchantLogo merchant={item.merchant} fallback={item.merchant[0]} />
+                  </span>
+                  <span className="min-w-0 flex-1 text-[13px] font-bold text-[#0F172A]">{item.merchant}</span>
+                  <span className="text-right">
+                    <span className="block whitespace-nowrap text-[12px] font-semibold text-[#334155]">QAR {formatAmount(item.amount)}</span>
+                    {item.change ? (
+                      <span className={item.up ? "block text-[12px] font-bold text-red-500" : item.up === false ? "block text-[12px] font-bold text-emerald-500" : "block text-[12px] font-bold text-[#6D35F5]"}>
+                        {item.isNew ? "New" : `${item.up ? "Up" : "Down"} ${item.change.replace("+", "").replace("-", "")}`}
+                      </span>
+                    ) : null}
+                  </span>
+                  <ChevronIcon />
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-3 rounded-[16px] bg-[#F8FAFC] px-4 py-5 text-center text-[13px] font-semibold text-[#64748B]">
+              No merchant spending for {periodCopy} yet.
+            </div>
+          )}
         </InsightPanel>
 
         <InsightPanel title="Smart Recommendations">
-          <div className="mt-2 divide-y divide-[#EEF2F7]">
-            {[
-              ["Reduce Food Delivery", "Try cooking at home 2 more times a week to save up to QAR 395 this month."],
-              ["Review Subscriptions", "You're paying for 3 active subscriptions. Review unused ones."],
-              ["Set a Grocery Budget", "You've spent a total of QAR 937. Try setting a weekly limit."]
-            ].map(([title, body]) => (
-              <button key={title} onClick={() => setSheet(title)} className="flex w-full items-center gap-3 py-2.5 text-left">
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[11px] bg-violet-50 text-[#6D35F5]"><WalletIcon /></span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[12.5px] font-extrabold text-[#0F172A]">{title}</span>
-                  <span className="mt-0.5 block text-[11px] font-medium leading-snug text-[#64748B]">{body}</span>
-                </span>
-                <ChevronIcon />
-              </button>
-            ))}
-          </div>
+          {recommendations.length ? (
+            <div className="mt-2 divide-y divide-[#EEF2F7]">
+              {recommendations.map((item) => (
+                <button key={item.id} onClick={() => setSheet(item.id)} className="flex w-full items-center gap-3 py-2.5 text-left">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[11px] bg-violet-50 text-[#6D35F5]"><WalletIcon /></span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[12.5px] font-extrabold text-[#0F172A]">{item.title}</span>
+                    <span className="mt-0.5 block text-[11px] font-medium leading-snug text-[#64748B]">{item.body}</span>
+                  </span>
+                  <ChevronIcon />
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-2 rounded-[16px] bg-[#F8FAFC] px-4 py-5 text-center text-[13px] font-semibold text-[#64748B]">
+              Not enough data yet for {periodCopy}. Upload more transactions or try a different period.
+            </div>
+          )}
         </InsightPanel>
 
-        <section className="rounded-[22px] bg-emerald-50 p-5 shadow-[0_10px_26px_rgba(15,23,42,0.035)] ring-1 ring-emerald-100">
-          <div className="flex items-start gap-4">
-            <div className="min-w-0 flex-1">
-              <h2 className="text-[17px] font-extrabold tracking-[-0.02em] text-[#0F172A]">Savings Opportunity</h2>
-              <p className="mt-3 text-[13px] font-medium text-[#475569]">You could save up to</p>
-              <p className="mt-1 text-[30px] font-extrabold tracking-[-0.04em] text-emerald-600">QAR 827.00</p>
-              <p className="text-[15px] font-bold text-emerald-600">this month</p>
-              <p className="mt-2 text-[13px] font-medium leading-snug text-[#475569]">by optimizing your spending in key categories.</p>
+        {savings.hasEnoughData ? (
+          <section className="rounded-[22px] bg-emerald-50 p-5 shadow-[0_10px_26px_rgba(15,23,42,0.035)] ring-1 ring-emerald-100">
+            <div className="flex items-start gap-4">
+              <div className="min-w-0 flex-1">
+                <h2 className="text-[17px] font-extrabold tracking-[-0.02em] text-[#0F172A]">Savings Opportunity</h2>
+                <p className="mt-3 text-[13px] font-medium text-[#475569]">You could save up to</p>
+                <p className="mt-1 text-[30px] font-extrabold tracking-[-0.04em] text-emerald-600">QAR {formatAmount(savings.amount)}</p>
+                <p className="text-[15px] font-bold text-emerald-600">{periodCopy}</p>
+                <p className="mt-2 text-[13px] font-medium leading-snug text-[#475569]">by optimizing your spending in key categories.</p>
+              </div>
+              <div className="grid h-16 w-16 shrink-0 place-items-center rounded-[20px] bg-white text-emerald-600 shadow-sm"><WalletIcon /></div>
             </div>
-            <div className="grid h-16 w-16 shrink-0 place-items-center rounded-[20px] bg-white text-emerald-600 shadow-sm"><WalletIcon /></div>
-          </div>
-          <button onClick={() => setSheet("Savings opportunity")} className="mt-4 h-10 rounded-[13px] bg-white px-5 text-[13px] font-extrabold text-emerald-700 ring-1 ring-emerald-200">See How</button>
-        </section>
+            <button onClick={() => setSheet("Savings opportunity")} className="mt-4 h-10 rounded-[13px] bg-white px-5 text-[13px] font-extrabold text-emerald-700 ring-1 ring-emerald-200">See How</button>
+          </section>
+        ) : (
+          <section className="rounded-[22px] bg-[#F8FAFC] p-5 ring-1 ring-[#E2E8F0]">
+            <h2 className="text-[15px] font-extrabold text-[#0F172A]">Savings Opportunity</h2>
+            <p className="mt-2 text-[13px] font-medium leading-snug text-[#64748B]">Not enough flexible spending data for {periodCopy} yet. Upload more transactions to see a personalized savings estimate.</p>
+          </section>
+        )}
       </div>
-      <BottomSheet title={sheet} transactions={transactions} onClose={() => setSheet(null)} />
+      <BottomSheet title={sheet} transactions={periodTransactions} onClose={() => setSheet(null)} emptyMessage={periodEmptyMessage} />
     </section>
   );
 }
@@ -1486,7 +1531,7 @@ function CategoryCorrectionSheet({ transaction, onClose, onSave }: { transaction
   );
 }
 
-function BottomSheet({ title, transactions, onClose }: { title: string | null; transactions: Transaction[]; onClose: () => void }) {
+function BottomSheet({ title, transactions, onClose, emptyMessage }: { title: string | null; transactions: Transaction[]; onClose: () => void; emptyMessage?: string }) {
   return (
     <Dialog.Root open={Boolean(title)} onOpenChange={(open) => { if (!open) onClose(); }}>
       <AnimatePresence>
@@ -1512,7 +1557,7 @@ function BottomSheet({ title, transactions, onClose }: { title: string | null; t
                 <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-slate-200" />
                 <Dialog.Title className="text-[20px] font-extrabold tracking-[-0.03em] text-[#0F172A]">{title}</Dialog.Title>
                 <div className="mt-4 max-h-[58vh] overflow-y-auto pr-1">
-                  <SheetContent title={title} transactions={transactions} />
+                  <SheetContent title={title} transactions={transactions} emptyMessage={emptyMessage} />
                 </div>
                 <Dialog.Close asChild>
                   <button className="mt-5 h-12 w-full rounded-[16px] bg-[#6D35F5] text-[15px] font-extrabold text-white shadow-lg shadow-[#6D35F5]/20 transition active:scale-[0.99]">Done</button>
@@ -1526,7 +1571,7 @@ function BottomSheet({ title, transactions, onClose }: { title: string | null; t
   );
 }
 
-function SheetContent({ title, transactions }: { title: string; transactions: Transaction[] }) {
+function SheetContent({ title, transactions, emptyMessage }: { title: string; transactions: Transaction[]; emptyMessage?: string }) {
   const categories = getAllCategoryRows(transactions);
   const merchants = getAllMerchantRows(transactions);
   const summary = getSummary(transactions);
@@ -1539,7 +1584,7 @@ function SheetContent({ title, transactions }: { title: string; transactions: Tr
   if (!transactions.length) {
     return (
       <div className="rounded-[18px] bg-[#F8FAFC] p-4 text-[13px] font-semibold leading-relaxed text-[#64748B]">
-        Upload a statement first. This panel will then show real merchant, category, filter, and recommendation data from your transactions.
+        {emptyMessage ?? "Upload a statement first. This panel will then show real merchant, category, filter, and recommendation data from your transactions."}
       </div>
     );
   }
@@ -1977,8 +2022,8 @@ function getSpendingRows(transactions: Transaction[], period: SpendingPeriod): S
   return spendingRows;
 }
 
-function getInsightCategories(transactions: Transaction[]) {
-  const rows = getSpendingRows(transactions, "This Month");
+function getInsightCategories(transactions: Transaction[], period: SpendingPeriod) {
+  const rows = getSpendingRows(transactions, period);
   return rows.map((row) => ({ ...row, label: row.label === "Dining Out" ? "Ordering Out" : row.label }));
 }
 
@@ -2001,18 +2046,32 @@ function getAllCategoryRows(transactions: Transaction[]) {
     .sort((left, right) => right.amount - left.amount);
 }
 
-function getMerchantInsights(transactions: Transaction[]) {
-  const totals = new Map<string, number>();
-  transactions.filter((row) => row.direction === "expense").forEach((row) => {
-    totals.set(row.merchant, (totals.get(row.merchant) ?? 0) + row.amount);
-  });
+function getMerchantInsights(transactions: Transaction[], period: SpendingPeriod) {
+  const currentRows = filterByPeriod(transactions, period).filter((row) => row.direction === "expense");
+  const previousMonth = getPreviousPeriodMonth(transactions, period);
+  const previousRows = previousMonth ? transactions.filter((row) => row.direction === "expense" && row.date.startsWith(previousMonth)) : [];
 
-  const rows = Array.from(totals.entries())
+  const totals = new Map<string, number>();
+  currentRows.forEach((row) => totals.set(row.merchant, (totals.get(row.merchant) ?? 0) + row.amount));
+
+  const previousTotals = new Map<string, number>();
+  previousRows.forEach((row) => previousTotals.set(row.merchant, (previousTotals.get(row.merchant) ?? 0) + row.amount));
+
+  return Array.from(totals.entries())
     .sort((left, right) => right[1] - left[1])
     .slice(0, 4)
-    .map(([merchant, amount]) => ({ merchant: toTitle(merchant), amount, count: transactions.filter((row) => row.merchant === merchant).length, change: "+0%", up: true, color: "bg-violet-50 text-violet-600" }));
+    .map(([merchant, amount]) => {
+      const count = currentRows.filter((row) => row.merchant === merchant).length;
+      const trend = getMerchantTrend(amount, previousTotals.get(merchant), Boolean(previousMonth));
+      return { merchant: toTitle(merchant), amount, count, color: "bg-violet-50 text-violet-600", ...trend };
+    });
+}
 
-  return rows.length ? rows : merchantInsights;
+function getMerchantTrend(amount: number, previousAmount: number | undefined, hasComparisonData: boolean) {
+  if (!hasComparisonData) return { change: undefined as string | undefined, up: undefined as boolean | undefined, isNew: false };
+  if (previousAmount === undefined || previousAmount === 0) return { change: "New", up: undefined as boolean | undefined, isNew: true };
+  const delta = ((amount - previousAmount) / previousAmount) * 100;
+  return { change: `${delta >= 0 ? "+" : ""}${delta.toFixed(0)}%`, up: delta >= 0, isNew: false };
 }
 
 function getAllMerchantRows(transactions: Transaction[]) {
@@ -2023,28 +2082,126 @@ function getAllMerchantRows(transactions: Transaction[]) {
     totals.set(merchant, { amount: current.amount + row.amount, count: current.count + 1 });
   });
 
-  const rows = Array.from(totals.entries())
-    .map(([merchant, value]) => ({ merchant, amount: value.amount, count: value.count, change: "+0%", up: true, color: "bg-violet-50 text-violet-600" }))
+  return Array.from(totals.entries())
+    .map(([merchant, value]) => ({ merchant, amount: value.amount, count: value.count }))
     .sort((left, right) => right.amount - left.amount);
-
-  return rows.length ? rows : merchantInsights.map((row) => ({ ...row, count: 1 }));
 }
 
-function buildTrendRows(transactions: Transaction[]) {
-  const expenseRows = transactions.filter((row) => row.direction === "expense").sort((left, right) => left.date.localeCompare(right.date));
-  if (!expenseRows.length) return trendRows;
+function buildTrendRows(transactions: Transaction[], period: SpendingPeriod) {
+  const expenseRows = transactions.filter((row) => row.direction === "expense");
+  if (!expenseRows.length) return [];
 
-  const month = expenseRows[expenseRows.length - 1].date.slice(0, 7);
+  if (period === "Year") {
+    const totalsByMonth = new Map<string, number>();
+    expenseRows.forEach((row) => {
+      const month = row.date.slice(0, 7);
+      totalsByMonth.set(month, (totalsByMonth.get(month) ?? 0) + row.amount);
+    });
+    return Array.from(totalsByMonth.entries())
+      .sort(([left], [right]) => left.localeCompare(right))
+      .slice(-12)
+      .map(([month, amount]) => ({ date: getShortMonthYear(month), amount }));
+  }
+
+  const month = getPeriodMonth(transactions, period);
+  if (!month) return [];
   const monthRows = expenseRows.filter((row) => row.date.startsWith(month));
-  const checkpoints = [1, 8, 15, 22, 30];
-  let cumulative = 0;
+  if (!monthRows.length) return [];
 
+  const checkpoints = [1, 8, 15, 22, 30];
   return checkpoints.map((day) => {
-    cumulative = monthRows
+    const cumulative = monthRows
       .filter((row) => Number(row.date.slice(8, 10)) <= day)
       .reduce((sum, row) => sum + row.amount, 0);
     return { date: `${getShortMonth(month)} ${day}`, amount: cumulative };
   });
+}
+
+function getAnchorMonth(transactions: Transaction[]) {
+  if (!transactions.length) return null;
+  return [...transactions].sort((left, right) => right.date.localeCompare(left.date))[0].date.slice(0, 7);
+}
+
+function shiftMonth(month: string, delta: number) {
+  const date = new Date(`${month}-01T00:00:00`);
+  date.setMonth(date.getMonth() + delta);
+  return date.toISOString().slice(0, 7);
+}
+
+function getPeriodMonth(transactions: Transaction[], period: SpendingPeriod): string | null {
+  if (period === "Year") return null;
+  const anchor = getAnchorMonth(transactions);
+  if (!anchor) return null;
+  return period === "This Month" ? anchor : shiftMonth(anchor, -1);
+}
+
+function getPreviousPeriodMonth(transactions: Transaction[], period: SpendingPeriod): string | null {
+  if (period === "Year") return null;
+  const anchor = getAnchorMonth(transactions);
+  if (!anchor) return null;
+  return period === "This Month" ? shiftMonth(anchor, -1) : shiftMonth(anchor, -2);
+}
+
+function getPeriodComparison(transactions: Transaction[], period: SpendingPeriod) {
+  if (period === "Year") return { percentChange: null as number | null, hasData: false };
+  const currentMonth = getPeriodMonth(transactions, period);
+  const previousMonth = getPreviousPeriodMonth(transactions, period);
+  if (!currentMonth || !previousMonth) return { percentChange: null as number | null, hasData: false };
+
+  const currentTotal = transactions.filter((row) => row.direction === "expense" && row.date.startsWith(currentMonth)).reduce((sum, row) => sum + row.amount, 0);
+  const previousTotal = transactions.filter((row) => row.direction === "expense" && row.date.startsWith(previousMonth)).reduce((sum, row) => sum + row.amount, 0);
+
+  if (!previousTotal) return { percentChange: null as number | null, hasData: false };
+
+  return { percentChange: ((currentTotal - previousTotal) / previousTotal) * 100, hasData: true };
+}
+
+function getFlexibleSavingsOpportunity(transactions: Transaction[], period: SpendingPeriod) {
+  const rows = getAllCategoryRows(filterByPeriod(transactions, period));
+  const orderingOut = rows.find((row) => row.label === "Ordering Out" || row.label === "Dining Out")?.amount ?? 0;
+  const shopping = rows.find((row) => row.label === "Shopping")?.amount ?? 0;
+  const subscriptions = rows.find((row) => row.label === "Subscriptions")?.amount ?? 0;
+  const flexibleSpend = orderingOut + shopping + subscriptions;
+  return { amount: Math.max(0, flexibleSpend * 0.12), hasEnoughData: flexibleSpend > 0 };
+}
+
+function getRecommendations(transactions: Transaction[], period: SpendingPeriod) {
+  const periodRows = filterByPeriod(transactions, period);
+  const categories = getAllCategoryRows(periodRows);
+  const orderingOut = categories.find((row) => row.label === "Ordering Out" || row.label === "Dining Out");
+  const subscriptions = categories.find((row) => row.label === "Subscriptions");
+  const groceries = categories.find((row) => row.label === "Groceries");
+  const subscriptionMerchantCount = new Set(
+    periodRows.filter((row) => row.direction === "expense" && row.category === "Subscriptions").map((row) => row.merchant.toLowerCase())
+  ).size;
+
+  const recommendations: { id: string; title: string; body: string }[] = [];
+
+  if (orderingOut && orderingOut.amount > 0) {
+    recommendations.push({
+      id: "Reduce Food Delivery",
+      title: "Reduce Food Delivery",
+      body: `You've spent QAR ${formatAmount(orderingOut.amount)} ordering out this period. Cutting back could save up to QAR ${formatAmount(orderingOut.amount * 0.14)}.`
+    });
+  }
+
+  if (subscriptions && subscriptions.amount > 0) {
+    recommendations.push({
+      id: "Review Subscriptions",
+      title: "Review Subscriptions",
+      body: `You're paying QAR ${formatAmount(subscriptions.amount)} across ${subscriptionMerchantCount} subscription merchant${subscriptionMerchantCount === 1 ? "" : "s"}. Review any you no longer use.`
+    });
+  }
+
+  if (groceries && groceries.amount > 0) {
+    recommendations.push({
+      id: "Set a Grocery Budget",
+      title: "Set a Grocery Budget",
+      body: `You've spent QAR ${formatAmount(groceries.amount)} on groceries this period. Try setting a monthly limit around QAR ${formatAmount(groceries.amount * 0.9)}.`
+    });
+  }
+
+  return recommendations;
 }
 
 function groupTransactionsByMonth(transactions: Transaction[]) {
@@ -2133,6 +2290,11 @@ function getMonthLabel(date: string) {
 function getShortMonth(month: string) {
   const parsed = new Date(`${month}-01T00:00:00`);
   return parsed.toLocaleDateString("en-US", { month: "short" });
+}
+
+function getShortMonthYear(month: string) {
+  const parsed = new Date(`${month}-01T00:00:00`);
+  return parsed.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
 }
 
 function formatMonthRange(transactions: Transaction[]) {
