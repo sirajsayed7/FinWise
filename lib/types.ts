@@ -94,6 +94,18 @@ export type DashboardSummary = {
   topMerchant: string;
 };
 
+export type SpendingRow = {
+  label: string;
+  amount: number;
+  percent: number;
+  color: string;
+};
+
+export type TrendPoint = {
+  date: string;
+  amount: number;
+};
+
 export type CategorizationResult = {
   merchant: string;
   category: CategoryName;
