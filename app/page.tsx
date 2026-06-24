@@ -973,13 +973,13 @@ function TransactionsPage({ transactions, setTransactions, setActiveView, onClea
         onClose={() => setEditingTransaction(null)}
         onSave={(category) => {
           if (!editingTransaction) return;
-            saveMerchantRule(editingTransaction, category);
-            setTransactions((current) =>
-              current.map((row) =>
-                shouldApplyMerchantCorrection(row, editingTransaction)
-                  ? {
-                      ...row,
-                      category,
+          saveMerchantRule(editingTransaction, category);
+          setTransactions((current) =>
+            current.map((row) =>
+              shouldApplyMerchantCorrection(row, editingTransaction)
+                ? {
+                    ...row,
+                    category,
                     subcategory: category,
                     confidence: 1,
                     needsReview: false,
@@ -2010,6 +2010,7 @@ function getReviewStats(transactions: Transaction[]) {
 }
 
 function isReviewTransaction(transaction: Transaction) {
+  if (transaction.categorySource === "user_rule" && !transaction.needsReview) return false;
   const merchantLooksMessy = transaction.merchant.length < 3 || /\b(unknown|payment|purchase|transaction|pos|card)\b/i.test(transaction.merchant) || /\d{5,}/.test(transaction.merchant);
   return transaction.needsReview || transaction.confidence < 0.75 || transaction.category === "Other" || merchantLooksMessy;
 }
