@@ -59,6 +59,10 @@ export async function categorizeUnknownTransactions(transactions: Transaction[])
 }
 
 function enhanceLocalReviewState(transaction: Transaction): Transaction {
+  if (transaction.categorySource === "user_rule" && !transaction.needsReview) {
+    return transaction;
+  }
+
   const merchantLooksMessy =
     transaction.merchant.length < 3 ||
     /\b(unknown|payment|purchase|transaction|pos|card)\b/i.test(transaction.merchant) ||

@@ -225,7 +225,7 @@ export default function FinWiseApp() {
     let cancelled = false;
     loadLocalSnapshot(null).then((snapshot) => {
       if (cancelled || !snapshot?.transactions.length) return;
-      const clean = dedupe(sanitizeTransactions(snapshot.transactions));
+      const clean = applySavedMerchantRules(dedupe(sanitizeTransactions(snapshot.transactions)));
       setTransactions(clean);
       setLatestPeriod(snapshot.latestPeriod);
       setUploadStatus(clean.length ? `${clean.length} transactions` : "No uploads yet");
@@ -279,7 +279,7 @@ export default function FinWiseApp() {
       if (cancelled) return;
 
       if (localSnapshot?.transactions.length) {
-        const cleanLocal = dedupe(sanitizeTransactions(localSnapshot.transactions));
+        const cleanLocal = applySavedMerchantRules(dedupe(sanitizeTransactions(localSnapshot.transactions)));
         setTransactions(cleanLocal);
         setLatestPeriod(localSnapshot.latestPeriod);
         setUploadStatus(`${cleanLocal.length} transactions`);
@@ -292,9 +292,12 @@ export default function FinWiseApp() {
         const data = await loadCloudData(authUser!.id);
         if (cancelled) return;
         const clean = dedupe(sanitizeTransactions(data?.transactions ?? []));
-        const localRules = data?.merchant_rules ?? [];
+        const localRules = mergeMerchantRules(data?.merchant_rules ?? [], getStoredMerchantRules());
         const fallback = clean.length ? null : localSnapshot;
-        const nextTransactions = clean.length ? clean : dedupe(sanitizeTransactions(fallback?.transactions ?? []));
+        const nextTransactions = applySavedMerchantRules(
+          clean.length ? clean : dedupe(sanitizeTransactions(fallback?.transactions ?? [])),
+          localRules
+        );
         const nextPeriod = data?.latest_period ?? fallback?.latestPeriod ?? null;
         const logoOverrides = await loadMerchantLogoOverrides(authUser!.id);
         if (cancelled) return;
@@ -486,21 +489,30 @@ export default function FinWiseApp() {
   const updatePendingTransaction = useCallback((transactionId: string, patch: PendingTransactionPatch) => {
     setPendingImport((current) => {
       if (!current) return current;
+      const editedTransaction = current.transactions.find((transaction) => transaction.id === transactionId);
+      const savedRule = editedTransaction && patch.category ? saveMerchantRule({ ...editedTransaction, ...patch }, patch.category) : null;
+      const nextTransactions = current.transactions.map((transaction) => {
+        if (transaction.id !== transactionId) return transaction;
+        const next = {
+          ...transaction,
+          ...patch,
+          amount: patch.amount !== undefined ? Math.max(0, patch.amount) : transaction.amount,
+          subcategory: patch.category ?? transaction.subcategory,
+          confidence: patch.category ? 1 : transaction.confidence,
+          needsReview: patch.category ? false : transaction.needsReview,
+          categorySource: patch.category ? ("user_rule" as const) : transaction.categorySource,
+          reason: patch.category ? `Saved merchant rule for "${transaction.merchant}".` : transaction.reason
+        };
+        return {
+          ...next,
+          merchant: next.merchant.trim() || transaction.merchant
+        };
+      });
       return {
         ...current,
-        transactions: current.transactions.map((transaction) => {
-          if (transaction.id !== transactionId) return transaction;
-          const next = {
-            ...transaction,
-            ...patch,
-            amount: patch.amount !== undefined ? Math.max(0, patch.amount) : transaction.amount,
-            subcategory: patch.category ?? transaction.subcategory
-          };
-          return {
-            ...next,
-            merchant: next.merchant.trim() || transaction.merchant
-          };
-        })
+        transactions: editedTransaction && patch.category
+          ? applyMerchantCorrection(nextTransactions, editedTransaction, patch.category, savedRule?.pattern)
+          : nextTransactions
       };
     });
   }, []);
@@ -973,23 +985,10 @@ function TransactionsPage({ transactions, setTransactions, setActiveView, onClea
         onClose={() => setEditingTransaction(null)}
         onSave={(category) => {
           if (!editingTransaction) return;
-          saveMerchantRule(editingTransaction, category);
-          setTransactions((current) =>
-            current.map((row) =>
-              shouldApplyMerchantCorrection(row, editingTransaction)
-                ? {
-                    ...row,
-                    category,
-                    subcategory: category,
-                    confidence: 1,
-                    needsReview: false,
-                    categorySource: "user_rule",
-                    reason: `Saved merchant rule for "${editingTransaction.merchant}".`
-                  }
-                : row
-            )
-          );
+          const rule = saveMerchantRule(editingTransaction, category);
+          setTransactions((current) => applyMerchantCorrection(current, editingTransaction, category, rule?.pattern));
           setEditingTransaction(null);
+          toast.success(`${editingTransaction.merchant} moved out of review`);
         }}
       />
     </section>
@@ -2010,16 +2009,40 @@ function getReviewStats(transactions: Transaction[]) {
 }
 
 function isReviewTransaction(transaction: Transaction) {
-  if (transaction.categorySource === "user_rule" && !transaction.needsReview) return false;
+  if (isUserResolvedTransaction(transaction)) return false;
   const merchantLooksMessy = transaction.merchant.length < 3 || /\b(unknown|payment|purchase|transaction|pos|card)\b/i.test(transaction.merchant) || /\d{5,}/.test(transaction.merchant);
   return transaction.needsReview || transaction.confidence < 0.75 || transaction.category === "Other" || merchantLooksMessy;
 }
 
-function shouldApplyMerchantCorrection(row: Transaction, edited: Transaction) {
+function isUserResolvedTransaction(transaction: Transaction) {
+  return transaction.categorySource === "user_rule" && !transaction.needsReview;
+}
+
+function applyMerchantCorrection(transactions: Transaction[], edited: Transaction, category: Transaction["category"], savedPattern?: string) {
+  return transactions.map((row) => {
+    if (!shouldApplyMerchantCorrection(row, edited, savedPattern)) return row;
+    return {
+      ...row,
+      category,
+      subcategory: category,
+      confidence: 1,
+      needsReview: false,
+      categorySource: "user_rule" as const,
+      reason: `Saved merchant rule for "${edited.merchant}".`
+    };
+  });
+}
+
+function shouldApplyMerchantCorrection(row: Transaction, edited: Transaction, savedPattern?: string) {
   const rowMerchant = normalizeMerchantKey(row.merchant);
   const editedMerchant = normalizeMerchantKey(edited.merchant);
   if (!rowMerchant || !editedMerchant) return row.id === edited.id;
-  return row.id === edited.id || rowMerchant === editedMerchant || rowMerchant.includes(editedMerchant) || editedMerchant.includes(rowMerchant);
+  const pattern = savedPattern ? normalizeMerchantKey(savedPattern) : "";
+  return row.id === edited.id
+    || rowMerchant === editedMerchant
+    || rowMerchant.includes(editedMerchant)
+    || editedMerchant.includes(rowMerchant)
+    || Boolean(pattern && (rowMerchant.includes(pattern) || pattern.includes(rowMerchant)));
 }
 
 function normalizeMerchantKey(value: string) {
@@ -2355,27 +2378,71 @@ async function loadCloudData(userId: string) {
 }
 
 async function saveCloudData(userId: string, transactions: Transaction[], latestPeriod: StatementPeriodInfo | null) {
-  let merchantRules: MerchantRule[] = [];
-  try {
-    merchantRules = JSON.parse(window.localStorage.getItem("finwise.merchantRules") ?? "[]") as MerchantRule[];
-  } catch {
-    merchantRules = [];
-  }
-
-  return saveFinWiseData(userId, transactions, latestPeriod, merchantRules);
+  return saveFinWiseData(userId, transactions, latestPeriod, getStoredMerchantRules());
 }
 
 function saveMerchantRule(transaction: Transaction, category: Transaction["category"]) {
   const pattern = normalizeMerchantKey(transaction.merchant);
-  if (!pattern) return;
+  if (!pattern) return null;
+  const savedRule = { pattern, merchant: transaction.merchant, category, subcategory: category };
 
   try {
     const current = JSON.parse(window.localStorage.getItem("finwise.merchantRules") ?? "[]") as Array<{ pattern: string; merchant?: string; category: Transaction["category"]; subcategory?: string }>;
-    const next = [{ pattern, merchant: transaction.merchant, category, subcategory: category }, ...current.filter((rule) => rule.pattern !== pattern)];
+    const next = [savedRule, ...current.filter((rule) => rule.pattern !== pattern)];
     window.localStorage.setItem("finwise.merchantRules", JSON.stringify(next.slice(0, 200)));
   } catch {
-    window.localStorage.setItem("finwise.merchantRules", JSON.stringify([{ pattern, merchant: transaction.merchant, category, subcategory: category }]));
+    window.localStorage.setItem("finwise.merchantRules", JSON.stringify([savedRule]));
   }
+  return savedRule;
+}
+
+function getStoredMerchantRules(): MerchantRule[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem("finwise.merchantRules") ?? "[]") as MerchantRule[];
+    return Array.isArray(parsed)
+      ? parsed.filter((rule) => typeof rule.pattern === "string" && categories.includes(rule.category))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function mergeMerchantRules(primary: MerchantRule[], fallback: MerchantRule[]) {
+  const seen = new Set<string>();
+  return [...primary, ...fallback].filter((rule) => {
+    const key = normalizeMerchantKey(rule.pattern);
+    if (!key || seen.has(key) || !categories.includes(rule.category)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function applySavedMerchantRules(transactions: Transaction[], rules: MerchantRule[] = getStoredMerchantRules()) {
+  if (!rules.length || !transactions.length) return transactions;
+  const sortedRules = [...rules]
+    .filter((rule) => rule.pattern && categories.includes(rule.category))
+    .sort((left, right) => right.pattern.length - left.pattern.length);
+
+  return transactions.map((transaction) => {
+    if (isUserResolvedTransaction(transaction)) return transaction;
+    const haystack = normalizeMerchantKey(`${transaction.merchant} ${transaction.descriptionRaw}`);
+    const match = sortedRules.find((rule) => {
+      const pattern = normalizeMerchantKey(rule.pattern);
+      return pattern && (haystack.includes(pattern) || pattern.includes(normalizeMerchantKey(transaction.merchant)));
+    });
+    if (!match) return transaction;
+
+    return {
+      ...transaction,
+      category: match.category,
+      subcategory: match.subcategory ?? match.category,
+      confidence: Math.max(transaction.confidence, 0.98),
+      needsReview: false,
+      categorySource: "user_rule" as const,
+      reason: `Applied saved merchant rule "${match.pattern}".`
+    };
+  });
 }
 
 function dedupe(transactions: Transaction[]) {
