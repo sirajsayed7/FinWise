@@ -6,6 +6,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { AnimatePresence, motion } from "framer-motion";
 import dynamic from "next/dynamic";
 import type { User } from "@supabase/supabase-js";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -29,7 +30,7 @@ const SpendingTrendChart = dynamic(() => import("@/components/charts/spending-tr
   loading: () => <div className="h-[160px] w-full animate-pulse rounded-[16px] bg-[#F1F5F9]" />
 });
 
-type ActiveView = "home" | "transactions" | "upload" | "insights" | "settings" | "statements";
+type ActiveView = "home" | "transactions" | "upload" | "insights" | "settings" | "statements" | "review";
 type SpendingPeriod = "This Month" | "Last Month" | "Year";
 
 type StatementPeriodInfo = {
@@ -202,6 +203,7 @@ type PendingImport = {
 };
 
 type PendingTransactionPatch = Partial<Pick<Transaction, "date" | "merchant" | "category" | "amount" | "direction">>;
+type CorrectionOptions = { applyAllMatching: boolean };
 
 export default function FinWiseApp() {
   const [activeView, setActiveView] = useState<ActiveView>("home");
@@ -216,6 +218,7 @@ export default function FinWiseApp() {
   const [merchantLogoOverrides, setMerchantLogoOverrides] = useState<MerchantLogoRecord[]>([]);
   const [localCacheReady, setLocalCacheReady] = useState(isSupabaseConfigured);
   const userChangedDataRef = useRef(false);
+  const restoreInputRef = useRef<HTMLInputElement | null>(null);
   const displayName = getUserDisplayName(authUser);
   const transactionCount = transactions.length;
 
@@ -341,17 +344,42 @@ export default function FinWiseApp() {
       .filter((merchant) => !prefetchedMerchantLogos.has(merchant))
       .slice(0, 80);
     if (!merchants.length) return;
-    for (const merchant of merchants) {
-      prefetchedMerchantLogos.add(merchant);
-      for (const url of getMerchantLogoUrls(merchant)) {
-        const image = new Image();
-        image.decoding = "async";
-        image.src = url;
+    const preloadMerchants = (items: string[]) => {
+      for (const merchant of items) {
+        prefetchedMerchantLogos.add(merchant);
+        for (const url of getMerchantLogoUrls(merchant)) {
+          const image = new Image();
+          image.decoding = "async";
+          image.src = url;
+        }
       }
+    };
+    preloadMerchants(merchants.slice(0, 18));
+    const remaining = merchants.slice(18);
+    if (!remaining.length) return;
+    const idle = window.requestIdleCallback ?? ((callback: IdleRequestCallback) => window.setTimeout(() => callback({ didTimeout: false, timeRemaining: () => 0 }), 250));
+    const cancelIdle = window.cancelIdleCallback ?? window.clearTimeout;
+    const idleId = idle(() => preloadMerchants(remaining), { timeout: 2500 });
+    return () => cancelIdle(idleId);
+  }, [transactions]);
+
+  function preloadMerchantLogo(merchant: string) {
+    if (!merchant || prefetchedMerchantLogos.has(merchant)) return;
+    prefetchedMerchantLogos.add(merchant);
+    for (const url of getMerchantLogoUrls(merchant)) {
+      const image = new Image();
+      image.decoding = "async";
+      image.src = url;
     }
+  }
+
+  useEffect(() => {
+    transactions.slice(0, 20).forEach((transaction) => preloadMerchantLogo(transaction.merchant));
   }, [transactions]);
 
   function clearUploads() {
+    const previousTransactions = transactions;
+    const previousPeriod = latestPeriod;
     userChangedDataRef.current = true;
     setTransactions([]);
     setLatestPeriod(null);
@@ -359,11 +387,25 @@ export default function FinWiseApp() {
     setUploadStatus("No uploads yet");
     void clearLocalSnapshot(authUser?.id ?? null);
     toast.success("Imported data cleared", {
-      description: "Your dashboard is ready for a fresh statement."
+      description: "Your dashboard is ready for a fresh statement.",
+      action: previousTransactions.length
+        ? {
+            label: "Undo",
+            onClick: () => {
+              userChangedDataRef.current = true;
+              setTransactions(previousTransactions);
+              setLatestPeriod(previousPeriod);
+              setUploadStatus(`${previousTransactions.length} transactions`);
+            }
+          }
+        : undefined
     });
   }
 
   function clearStatement(statementId: string) {
+    const removedTransactions = transactions.filter((transaction) => transaction.statementId === statementId);
+    if (!removedTransactions.length) return;
+    const previousPeriod = latestPeriod;
     userChangedDataRef.current = true;
     const nextTransactions = transactions.filter((transaction) => transaction.statementId !== statementId);
     setTransactions(nextTransactions);
@@ -374,8 +416,69 @@ export default function FinWiseApp() {
     }
     setUploadStatus(nextTransactions.length ? `${nextTransactions.length} transactions` : "No uploads yet");
     toast.success("Statement removed", {
-      description: nextTransactions.length ? `${nextTransactions.length} transactions remain.` : "No imported transactions remain."
+      description: nextTransactions.length ? `${nextTransactions.length} transactions remain.` : "No imported transactions remain.",
+      action: {
+        label: "Undo",
+        onClick: () => {
+          const restored = dedupe([...removedTransactions, ...nextTransactions]);
+          userChangedDataRef.current = true;
+          setTransactions(restored);
+          setLatestPeriod(previousPeriod ?? getLatestPeriodFromTransactions(restored));
+          setUploadStatus(`${restored.length} transactions`);
+        }
+      }
     });
+  }
+
+  function exportBackup() {
+    const backup = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      latestPeriod,
+      transactions,
+      merchantRules: getStoredMerchantRules(),
+      merchantLogoOverrides
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `finwise-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    toast.success("Backup exported");
+  }
+
+  async function restoreBackup(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const parsed = JSON.parse(await file.text()) as {
+        transactions?: Transaction[];
+        latestPeriod?: StatementPeriodInfo | null;
+        merchantRules?: MerchantRule[];
+        merchantLogoOverrides?: MerchantLogoRecord[];
+      };
+      const restoredTransactions = applySavedMerchantRules(dedupe(sanitizeTransactions(parsed.transactions ?? [])), parsed.merchantRules ?? []);
+      if (!restoredTransactions.length) throw new Error("No transactions found in backup.");
+      userChangedDataRef.current = true;
+      setTransactions(restoredTransactions);
+      setLatestPeriod(parsed.latestPeriod ?? getLatestPeriodFromTransactions(restoredTransactions));
+      setMerchantLogoOverrides(parsed.merchantLogoOverrides ?? []);
+      cacheMerchantLogoOverrides(parsed.merchantLogoOverrides ?? []);
+      if (parsed.merchantRules) {
+        window.localStorage.setItem("finwise.merchantRules", JSON.stringify(parsed.merchantRules.slice(0, 200)));
+      }
+      setUploadStatus(`${restoredTransactions.length} transactions restored`);
+      toast.success("Backup restored", {
+        description: `${restoredTransactions.length} transactions loaded.`
+      });
+    } catch (error) {
+      toast.error("Restore failed", {
+        description: error instanceof Error ? error.message : "Choose a valid FinWise backup file."
+      });
+    }
   }
 
   async function signOut() {
@@ -444,9 +547,15 @@ export default function FinWiseApp() {
     });
     const duplicateExists = Boolean(statementId && transactions.some((transaction) => transaction.statementId === statementId));
     setUploadStatus(duplicateExists ? `${imported.length} transactions ready. Confirm to replace the existing statement.` : `${imported.length} transactions ready for review`);
-    toast.success("Statement ready for review", {
-      description: `${imported.length} transactions detected.`
-    });
+    if (duplicateExists) {
+      toast.warning("Duplicate statement detected", {
+        description: "Confirming this import will replace the older copy instead of duplicating it."
+      });
+    } else {
+      toast.success("Statement ready for review", {
+        description: `${imported.length} transactions detected.`
+      });
+    }
     event.target.value = "";
     setActiveView("upload");
   }
@@ -539,8 +648,10 @@ export default function FinWiseApp() {
         {activeView === "transactions" ? <TransactionsPage transactions={transactions} setTransactions={updateTransactions} setActiveView={setActiveView} onClearUploads={clearUploads} /> : null}
         {activeView === "upload" ? <UploadPage latestPeriod={latestPeriod} uploadStatus={uploadStatus} onUpload={uploadStatement} onClearUploads={clearUploads} hasUploads={transactionCount > 0} pendingImport={pendingImport} onConfirmImport={confirmPendingImport} onCancelImport={() => setPendingImport(null)} onRemovePendingTransaction={removePendingTransaction} onUpdatePendingTransaction={updatePendingTransaction} /> : null}
         {activeView === "insights" ? <InsightsPage transactions={transactions} /> : null}
-        {activeView === "settings" ? <SettingsPage setActiveView={setActiveView} authEmail={authUser?.email ?? null} syncStatus={syncStatus} onSignOut={signOut} /> : null}
+        {activeView === "settings" ? <SettingsPage setActiveView={setActiveView} authEmail={authUser?.email ?? null} syncStatus={syncStatus} onSignOut={signOut} onExportBackup={exportBackup} onRestoreBackup={() => restoreInputRef.current?.click()} /> : null}
         {activeView === "statements" ? <StatementsPageV2 transactions={transactions} latestPeriod={latestPeriod} setActiveView={setActiveView} onClearUploads={clearUploads} onClearStatement={clearStatement} /> : null}
+        {activeView === "review" ? <ReviewWorkflowPage transactions={transactions} setTransactions={updateTransactions} setActiveView={setActiveView} /> : null}
+        <input ref={restoreInputRef} type="file" accept="application/json,.json" className="hidden" onChange={restoreBackup} />
       </div>
       <BottomNavigation activeView={activeView} setActiveView={setActiveView} />
     </main>
@@ -940,13 +1051,14 @@ function TransactionsPage({ transactions, setTransactions, setActiveView, onClea
                 <h2 className="text-[18px] font-extrabold tracking-[-0.02em] text-[#0F172A]">Review Queue</h2>
                 <p className="mt-0.5 text-[12.5px] font-semibold text-[#64748B]">Correct these once. FinWise will learn the merchant rule.</p>
               </div>
-              <button onClick={() => setActiveChip("Needs Review")} className="rounded-full bg-amber-50 px-3 py-1.5 text-[12px] font-extrabold text-amber-600">{reviewRows.length}</button>
+              <button onClick={() => setActiveView("review")} className="rounded-full bg-amber-50 px-3 py-1.5 text-[12px] font-extrabold text-amber-600">{reviewRows.length}</button>
             </div>
             <div className="mt-3 divide-y divide-[#EEF2F7]">
               {reviewRows.slice(0, 4).map((row) => (
                 <ReviewQueueRow key={row.id} row={row} onCorrect={() => setEditingTransaction(row)} />
               ))}
             </div>
+            <button onClick={() => setActiveView("review")} className="mt-3 h-10 w-full rounded-[15px] bg-[#F8FAFC] text-[13px] font-extrabold text-[#5A36ED] ring-1 ring-[#E2E8F0]">Review all transactions</button>
           </section>
         ) : null}
 
@@ -963,11 +1075,7 @@ function TransactionsPage({ transactions, setTransactions, setActiveView, onClea
               <span className="flex items-center gap-2 text-[12px] font-bold text-[#64748B]">{group.count} transactions<ChevronUpIcon collapsed={!expanded[group.month]} /></span>
             </button>
             {expanded[group.month] ? (
-              <div className="divide-y divide-[#EEF2F7]">
-                {group.rows.map((row) => (
-                  <TransactionListRow key={row.id} row={row} onOpen={() => setSheet(`${row.merchant} details`)} onActions={() => setEditingTransaction(row)} />
-                ))}
-              </div>
+              <TransactionRowsPanel rows={group.rows} onOpen={(row) => setSheet(`${row.merchant} details`)} onActions={(row) => setEditingTransaction(row)} />
             ) : null}
           </section>
         )) : (
@@ -983,12 +1091,112 @@ function TransactionsPage({ transactions, setTransactions, setActiveView, onClea
       <CategoryCorrectionSheet
         transaction={editingTransaction}
         onClose={() => setEditingTransaction(null)}
-        onSave={(category) => {
+        onSave={(category, options) => {
           if (!editingTransaction) return;
           const rule = saveMerchantRule(editingTransaction, category);
-          setTransactions((current) => applyMerchantCorrection(current, editingTransaction, category, rule?.pattern));
+          setTransactions((current) => {
+            const next = options.applyAllMatching
+              ? applyMerchantCorrection(current, editingTransaction, category, rule?.pattern)
+              : applySingleTransactionCorrection(current, editingTransaction, category);
+            const previous = current;
+            window.setTimeout(() => {
+              toast.success(`${editingTransaction.merchant} moved out of review`, {
+                action: {
+                  label: "Undo",
+                  onClick: () => setTransactions(previous)
+                }
+              });
+            }, 0);
+            return next;
+          });
           setEditingTransaction(null);
-          toast.success(`${editingTransaction.merchant} moved out of review`);
+        }}
+      />
+    </section>
+  );
+}
+
+function ReviewWorkflowPage({ transactions, setTransactions, setActiveView }: { transactions: Transaction[]; setTransactions: (transactions: Transaction[] | ((current: Transaction[]) => Transaction[])) => void; setActiveView: (view: ActiveView) => void }) {
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const reviewRows = useMemo(() => getReviewRows(transactions), [transactions]);
+  const similarCount = useMemo(() => editingTransaction ? transactions.filter((row) => shouldApplyMerchantCorrection(row, editingTransaction)).length : 0, [editingTransaction, transactions]);
+
+  const applySavedRules = () => {
+    setTransactions((current) => {
+      const next = applySavedMerchantRules(current);
+      const resolved = getReviewRows(current).length - getReviewRows(next).length;
+      window.setTimeout(() => {
+        if (resolved > 0) toast.success(`${resolved} transactions resolved from saved rules`);
+        else toast.message("No saved rules matched the current review queue");
+      }, 0);
+      return next;
+    });
+  };
+
+  return (
+    <section>
+      <PageHeader title="Review Queue" subtitle="Fix low-confidence transactions once. FinWise will remember the merchant rule." actionLabel="Back" onAction={() => setActiveView("transactions")} />
+
+      <section className="rounded-[24px] bg-gradient-to-br from-violet-50 to-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-violet-100">
+        <div className="grid grid-cols-3 gap-2">
+          <MiniMetric label="Needs review" value={reviewRows.length.toString()} tone={reviewRows.length ? "red" : "green"} />
+          <MiniMetric label="Rules" value={getStoredMerchantRules().length.toString()} />
+          <MiniMetric label="Resolved" value={`${getReviewStats(transactions).categorizedPercent}%`} tone="green" />
+        </div>
+        <button onClick={applySavedRules} className="mt-3 h-11 w-full rounded-[15px] bg-[#6D35F5] text-[13px] font-extrabold text-white shadow-lg shadow-[#6D35F5]/20">
+          Apply saved rules to queue
+        </button>
+      </section>
+
+      <div className="mt-4 grid gap-3">
+        {reviewRows.length ? reviewRows.map((row) => (
+          <article key={row.id} className="rounded-[20px] bg-white p-3.5 shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
+            <div className="flex items-start gap-3">
+              <span className={`grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-full text-[14px] font-extrabold ${categoryAvatarStyles[row.category] ?? categoryAvatarStyles.Other}`}>
+                <MerchantLogo merchant={row.merchant} fallback={row.merchant.slice(0, 1) || "?"} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[14px] font-extrabold text-[#0F172A]">{row.merchant}</p>
+                <p className="mt-0.5 text-[12px] font-semibold text-[#64748B]">{row.date} - QAR {formatAmount(row.amount)}</p>
+                <p className="mt-2 rounded-[14px] bg-amber-50 p-2 text-[11.5px] font-semibold leading-snug text-amber-700">
+                  {getReviewReason(row)}
+                </p>
+              </div>
+              <button onClick={() => setEditingTransaction(row)} className="rounded-full bg-[#6D35F5] px-3 py-1.5 text-[12px] font-extrabold text-white shadow-md shadow-[#6D35F5]/20">Fix</button>
+            </div>
+          </article>
+        )) : (
+          <section className="rounded-[24px] bg-white px-5 py-10 text-center shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
+            <p className="text-[17px] font-extrabold text-[#0F172A]">Review queue is clear</p>
+            <p className="mt-1 text-[13px] font-semibold leading-snug text-[#64748B]">Corrected merchant rules will be reused for future uploads.</p>
+          </section>
+        )}
+      </div>
+
+      <CategoryCorrectionSheet
+        transaction={editingTransaction}
+        similarCount={similarCount}
+        onClose={() => setEditingTransaction(null)}
+        onSave={(category, options) => {
+          if (!editingTransaction) return;
+          const rule = saveMerchantRule(editingTransaction, category);
+          setTransactions((current) => {
+            const previous = current;
+            const next = options.applyAllMatching
+              ? applyMerchantCorrection(current, editingTransaction, category, rule?.pattern)
+              : applySingleTransactionCorrection(current, editingTransaction, category);
+            window.setTimeout(() => {
+              toast.success("Correction saved", {
+                description: options.applyAllMatching ? "Matching merchant rows were updated." : "Only this transaction was updated.",
+                action: {
+                  label: "Undo",
+                  onClick: () => setTransactions(previous)
+                }
+              });
+            }, 0);
+            return next;
+          });
+          setEditingTransaction(null);
         }}
       />
     </section>
@@ -1015,6 +1223,46 @@ function TransactionListRow({ row, onOpen, onActions }: { row: Transaction; onOp
         <p className={isIncome ? "whitespace-nowrap text-[13.5px] font-extrabold text-emerald-500 min-[391px]:text-[14px]" : "whitespace-nowrap text-[13.5px] font-extrabold text-red-500 min-[391px]:text-[14px]"}>{isIncome ? "+" : "-"}QAR {formatAmount(row.amount)}</p>
       </button>
       <button onClick={onActions} aria-label="Transaction actions" className="text-[#64748B]"><DotsIcon /></button>
+    </div>
+  );
+}
+
+function TransactionRowsPanel({ rows, onOpen, onActions }: { rows: Transaction[]; onOpen: (row: Transaction) => void; onActions: (row: Transaction) => void }) {
+  const parentRef = useRef<HTMLDivElement | null>(null);
+  const shouldVirtualize = rows.length > 35;
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 77,
+    overscan: 8
+  });
+
+  if (!shouldVirtualize) {
+    return (
+      <div className="divide-y divide-[#EEF2F7]">
+        {rows.map((row) => (
+          <TransactionListRow key={row.id} row={row} onOpen={() => onOpen(row)} onActions={() => onActions(row)} />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div ref={parentRef} className="max-h-[620px] overflow-y-auto overscroll-contain">
+      <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+        {virtualizer.getVirtualItems().map((item) => {
+          const row = rows[item.index];
+          return (
+            <div
+              key={row.id}
+              className="absolute left-0 top-0 w-full border-b border-[#EEF2F7]"
+              style={{ transform: `translateY(${item.start}px)` }}
+            >
+              <TransactionListRow row={row} onOpen={() => onOpen(row)} onActions={() => onActions(row)} />
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1419,7 +1667,7 @@ function StatementsPageV2({ transactions, latestPeriod, setActiveView, onClearUp
   );
 }
 
-function SettingsPage({ setActiveView, authEmail, syncStatus, onSignOut }: { setActiveView: (view: ActiveView) => void; authEmail: string | null; syncStatus: string; onSignOut: () => void }) {
+function SettingsPage({ setActiveView, authEmail, syncStatus, onSignOut, onExportBackup, onRestoreBackup }: { setActiveView: (view: ActiveView) => void; authEmail: string | null; syncStatus: string; onSignOut: () => void; onExportBackup: () => void; onRestoreBackup: () => void }) {
   return (
     <section>
       <PageHeader title="Settings" subtitle="Manage privacy, categories, rules, and exports." />
@@ -1436,8 +1684,19 @@ function SettingsPage({ setActiveView, authEmail, syncStatus, onSignOut }: { set
             <p className="mt-3 rounded-[14px] bg-amber-50 p-3 text-[12px] font-semibold leading-relaxed text-amber-700">Add Supabase environment variables to enable hosted accounts.</p>
           )}
         </section>
-        <SettingsGroup title="Data & Privacy" items={["Original statements are deleted after processing", "Keep original statements: Off", "Export extracted transaction data"]} />
+        <section className="rounded-[23px] bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
+          <h2 className="text-[17px] font-extrabold tracking-[-0.02em]">Data & Privacy</h2>
+          <p className="mt-1 text-[12.5px] font-semibold leading-snug text-[#64748B]">Original statements are deleted after processing unless private storage is enabled.</p>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button onClick={onExportBackup} className="h-11 rounded-[15px] bg-[#6D35F5] text-[13px] font-extrabold text-white shadow-lg shadow-[#6D35F5]/20">Export backup</button>
+            <button onClick={onRestoreBackup} className="h-11 rounded-[15px] bg-[#F8FAFC] text-[13px] font-extrabold text-[#334155] ring-1 ring-[#E2E8F0]">Restore backup</button>
+          </div>
+        </section>
         <SettingsGroup title="Categories" items={["Manage category colors and icons", "Merchant rules", "Low-confidence review queue"]} />
+        <button onClick={() => setActiveView("review")} className="flex min-h-[56px] items-center justify-between rounded-[20px] bg-white px-4 text-left shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
+          <span className="text-[15px] font-extrabold">Review queue</span>
+          <ChevronIcon />
+        </button>
         <button onClick={() => setActiveView("statements")} className="flex min-h-[56px] items-center justify-between rounded-[20px] bg-white px-4 text-left shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
           <span className="text-[15px] font-extrabold">Statement history</span>
           <ChevronIcon />
@@ -1500,7 +1759,13 @@ function InsightPanel({ title, aside, children }: { title: string; aside?: React
   );
 }
 
-function CategoryCorrectionSheet({ transaction, onClose, onSave }: { transaction: Transaction | null; onClose: () => void; onSave: (category: Transaction["category"]) => void }) {
+function CategoryCorrectionSheet({ transaction, similarCount = 1, onClose, onSave }: { transaction: Transaction | null; similarCount?: number; onClose: () => void; onSave: (category: Transaction["category"], options: CorrectionOptions) => void }) {
+  const [applyAllMatching, setApplyAllMatching] = useState(true);
+
+  useEffect(() => {
+    if (transaction) setApplyAllMatching(true);
+  }, [transaction]);
+
   return (
     <Dialog.Root open={Boolean(transaction)} onOpenChange={(open) => { if (!open) onClose(); }}>
       <AnimatePresence>
@@ -1526,11 +1791,22 @@ function CategoryCorrectionSheet({ transaction, onClose, onSave }: { transaction
                 <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-slate-200" />
                 <Dialog.Title className="text-[20px] font-extrabold tracking-[-0.03em] text-[#0F172A]">Correct category</Dialog.Title>
                 <Dialog.Description className="mt-1 text-[13px] font-medium text-[#64748B]">{transaction.merchant}</Dialog.Description>
+                <button
+                  type="button"
+                  onClick={() => setApplyAllMatching((current) => !current)}
+                  className={cn(
+                    "mt-3 flex min-h-[44px] w-full items-center justify-between gap-3 rounded-[16px] px-3 text-left text-[12px] font-extrabold ring-1 transition",
+                    applyAllMatching ? "bg-violet-50 text-[#5B21B6] ring-violet-100" : "bg-[#F8FAFC] text-[#64748B] ring-[#E2E8F0]"
+                  )}
+                >
+                  <span>Apply to all matching merchants</span>
+                  <span className="rounded-full bg-white px-2 py-1 text-[11px] text-[#334155] ring-1 ring-[#E2E8F0]">{applyAllMatching ? `${similarCount} rows` : "1 row"}</span>
+                </button>
                 <div className="mt-4 grid max-h-[320px] grid-cols-2 gap-2 overflow-y-auto pr-1">
                   {categories.map((category) => (
                     <button
                       key={category}
-                      onClick={() => onSave(category)}
+                      onClick={() => onSave(category, { applyAllMatching })}
                       className={cn(
                         "min-h-10 rounded-[14px] px-3 text-[12px] font-extrabold transition active:scale-[0.98]",
                         category === transaction.category
@@ -2033,6 +2309,21 @@ function applyMerchantCorrection(transactions: Transaction[], edited: Transactio
   });
 }
 
+function applySingleTransactionCorrection(transactions: Transaction[], edited: Transaction, category: Transaction["category"]) {
+  return transactions.map((row) => row.id === edited.id
+    ? {
+        ...row,
+        category,
+        subcategory: category,
+        confidence: 1,
+        needsReview: false,
+        categorySource: "user_rule" as const,
+        reason: `Manually corrected "${edited.merchant}".`
+      }
+    : row
+  );
+}
+
 function shouldApplyMerchantCorrection(row: Transaction, edited: Transaction, savedPattern?: string) {
   const rowMerchant = normalizeMerchantKey(row.merchant);
   const editedMerchant = normalizeMerchantKey(edited.merchant);
@@ -2043,6 +2334,13 @@ function shouldApplyMerchantCorrection(row: Transaction, edited: Transaction, sa
     || rowMerchant.includes(editedMerchant)
     || editedMerchant.includes(rowMerchant)
     || Boolean(pattern && (rowMerchant.includes(pattern) || pattern.includes(rowMerchant)));
+}
+
+function getReviewReason(transaction: Transaction) {
+  if (transaction.category === "Other") return "Category is Other, so this needs a real category before FinWise can learn it.";
+  if (transaction.confidence < 0.75) return `Low confidence: ${Math.round(transaction.confidence * 100)}%. Confirm the category once to save a merchant rule.`;
+  if (transaction.needsReview) return transaction.reason || "Marked for manual review by the statement parser.";
+  return "Merchant text looks unusual. Confirm the category once to prevent future reviews.";
 }
 
 function normalizeMerchantKey(value: string) {
