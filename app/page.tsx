@@ -12,6 +12,7 @@ import { z } from "zod";
 import { categories } from "@/lib/categorization";
 import { demoTransactions } from "@/lib/demo-data";
 import { loadFinWiseData, saveFinWiseData, loadMerchantLogoOverrides, saveMerchantLogoOverrides } from "@/lib/finwise-db";
+import { clearLocalSnapshot, loadLocalSnapshot, saveLocalSnapshot } from "@/lib/local-cache";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase-client";
 import type { MerchantLogoRecord, MerchantRule, SpendingRow, Transaction, TrendPoint } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -193,12 +194,6 @@ const merchantLogoDomains = [
   { keywords: ["youtube"], domain: "youtube.com" }
 ];
 
-type LocalSnapshot = {
-  transactions: Transaction[];
-  latestPeriod: StatementPeriodInfo | null;
-  savedAt: string;
-};
-
 type PendingImport = {
   statementId?: string;
   fileName: string;
@@ -219,34 +214,36 @@ export default function FinWiseApp() {
   const [syncStatus, setSyncStatus] = useState(isSupabaseConfigured ? "Connect your account" : "Local mode");
   const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
   const [merchantLogoOverrides, setMerchantLogoOverrides] = useState<MerchantLogoRecord[]>([]);
+  const [localCacheReady, setLocalCacheReady] = useState(isSupabaseConfigured);
   const userChangedDataRef = useRef(false);
   const displayName = getUserDisplayName(authUser);
   const transactionCount = transactions.length;
 
   useEffect(() => {
     if (isSupabaseConfigured) return;
-    const saved = window.localStorage.getItem("finwise.transactions");
-    if (!saved) return;
-    try {
-      const parsed = JSON.parse(saved) as Transaction[];
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        const clean = dedupe(sanitizeTransactions(parsed));
-        setTransactions(clean);
-        setUploadStatus(clean.length ? `${clean.length} transactions` : "No uploads yet");
-      }
-      const savedPeriod = window.localStorage.getItem("finwise.latestPeriod");
-      if (savedPeriod) setLatestPeriod(JSON.parse(savedPeriod) as StatementPeriodInfo);
-    } catch {
-      window.localStorage.removeItem("finwise.transactions");
-      window.localStorage.removeItem("finwise.latestPeriod");
-    }
+
+    let cancelled = false;
+    loadLocalSnapshot(null).then((snapshot) => {
+      if (cancelled || !snapshot?.transactions.length) return;
+      const clean = dedupe(sanitizeTransactions(snapshot.transactions));
+      setTransactions(clean);
+      setLatestPeriod(snapshot.latestPeriod);
+      setUploadStatus(clean.length ? `${clean.length} transactions` : "No uploads yet");
+    }).finally(() => {
+      if (!cancelled) setLocalCacheReady(true);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
     if (isSupabaseConfigured) return;
-    window.localStorage.setItem("finwise.transactions", JSON.stringify(transactions));
-    if (latestPeriod) window.localStorage.setItem("finwise.latestPeriod", JSON.stringify(latestPeriod));
-  }, [transactions, latestPeriod]);
+    if (!localCacheReady) return;
+    if (!transactions.length && !latestPeriod) return;
+    void saveLocalSnapshot(null, transactions, latestPeriod);
+  }, [transactions, latestPeriod, localCacheReady]);
 
   useEffect(() => {
     const supabase = getSupabase();
@@ -276,36 +273,47 @@ export default function FinWiseApp() {
     if (!isSupabaseConfigured || !authUser) return;
 
     let cancelled = false;
-    const localSnapshot = loadLocalSnapshot(authUser.id);
-    if (localSnapshot?.transactions.length) {
-      const cleanLocal = dedupe(sanitizeTransactions(localSnapshot.transactions));
-      setTransactions(cleanLocal);
-      setLatestPeriod(localSnapshot.latestPeriod);
-      setUploadStatus(`${cleanLocal.length} transactions`);
+
+    async function loadCachedThenCloud() {
+      const localSnapshot = await loadLocalSnapshot(authUser!.id);
+      if (cancelled) return;
+
+      if (localSnapshot?.transactions.length) {
+        const cleanLocal = dedupe(sanitizeTransactions(localSnapshot.transactions));
+        setTransactions(cleanLocal);
+        setLatestPeriod(localSnapshot.latestPeriod);
+        setUploadStatus(`${cleanLocal.length} transactions`);
+        setSyncStatus("Loaded from this device");
+      } else {
+        setSyncStatus("Loading account data...");
+      }
+
+      try {
+        const data = await loadCloudData(authUser!.id);
+        if (cancelled) return;
+        const clean = dedupe(sanitizeTransactions(data?.transactions ?? []));
+        const localRules = data?.merchant_rules ?? [];
+        const fallback = clean.length ? null : localSnapshot;
+        const nextTransactions = clean.length ? clean : dedupe(sanitizeTransactions(fallback?.transactions ?? []));
+        const nextPeriod = data?.latest_period ?? fallback?.latestPeriod ?? null;
+        const logoOverrides = await loadMerchantLogoOverrides(authUser!.id);
+        if (cancelled) return;
+        setTransactions(nextTransactions);
+        setLatestPeriod(nextPeriod);
+        setMerchantLogoOverrides(logoOverrides);
+        setUploadStatus(nextTransactions.length ? `${nextTransactions.length} transactions` : "No uploads yet");
+        window.localStorage.setItem("finwise.merchantRules", JSON.stringify(localRules));
+        cacheMerchantLogoOverrides(logoOverrides);
+        setCloudLoaded(true);
+        setSyncStatus(clean.length ? "Synced" : nextTransactions.length ? "Loaded from this device" : "Ready for first upload");
+      } catch {
+        if (cancelled) return;
+        setCloudLoaded(true);
+        setSyncStatus(localSnapshot?.transactions.length ? "Loaded from this device" : "Cloud sync unavailable");
+      }
     }
 
-    setSyncStatus("Loading account data...");
-    loadCloudData(authUser.id).then(async (data) => {
-      if (cancelled) return;
-      const clean = dedupe(sanitizeTransactions(data?.transactions ?? []));
-      const localRules = data?.merchant_rules ?? [];
-      const fallback = clean.length ? null : localSnapshot;
-      const nextTransactions = clean.length ? clean : dedupe(sanitizeTransactions(fallback?.transactions ?? []));
-      const nextPeriod = data?.latest_period ?? fallback?.latestPeriod ?? null;
-      const logoOverrides = await loadMerchantLogoOverrides(authUser.id);
-      setTransactions(nextTransactions);
-      setLatestPeriod(nextPeriod);
-      setMerchantLogoOverrides(logoOverrides);
-      setUploadStatus(nextTransactions.length ? `${nextTransactions.length} transactions` : "No uploads yet");
-      window.localStorage.setItem("finwise.merchantRules", JSON.stringify(localRules));
-      cacheMerchantLogoOverrides(logoOverrides);
-      setCloudLoaded(true);
-      setSyncStatus(clean.length ? "Synced" : nextTransactions.length ? "Loaded from this device" : "Ready for first upload");
-    }).catch(() => {
-      if (cancelled) return;
-      setCloudLoaded(true);
-      setSyncStatus(localSnapshot?.transactions.length ? "Loaded from this device" : "Cloud sync unavailable");
-    });
+    void loadCachedThenCloud();
 
     return () => {
       cancelled = true;
@@ -315,7 +323,7 @@ export default function FinWiseApp() {
   useEffect(() => {
     if (!isSupabaseConfigured || !authUser || !cloudLoaded) return;
     if (transactions.length || latestPeriod) {
-      saveLocalSnapshot(authUser.id, transactions, latestPeriod);
+      void saveLocalSnapshot(authUser.id, transactions, latestPeriod);
     }
     if (!userChangedDataRef.current) return;
     saveCloudData(authUser.id, transactions, latestPeriod).then((ok) => {
@@ -346,9 +354,7 @@ export default function FinWiseApp() {
     setLatestPeriod(null);
     setPendingImport(null);
     setUploadStatus("No uploads yet");
-    window.localStorage.removeItem("finwise.transactions");
-    window.localStorage.removeItem("finwise.latestPeriod");
-    if (authUser) window.localStorage.removeItem(getLocalSnapshotKey(authUser.id));
+    void clearLocalSnapshot(authUser?.id ?? null);
     toast.success("Imported data cleared", {
       description: "Your dashboard is ready for a fresh statement."
     });
@@ -360,8 +366,9 @@ export default function FinWiseApp() {
     setTransactions(nextTransactions);
     const nextLatest = getLatestPeriodFromTransactions(nextTransactions);
     setLatestPeriod(nextLatest);
-    if (nextLatest) window.localStorage.setItem("finwise.latestPeriod", JSON.stringify(nextLatest));
-    else window.localStorage.removeItem("finwise.latestPeriod");
+    if (!nextTransactions.length) {
+      void clearLocalSnapshot(authUser?.id ?? null);
+    }
     setUploadStatus(nextTransactions.length ? `${nextTransactions.length} transactions` : "No uploads yet");
     toast.success("Statement removed", {
       description: nextTransactions.length ? `${nextTransactions.length} transactions remain.` : "No imported transactions remain."
@@ -454,7 +461,7 @@ export default function FinWiseApp() {
     }
     setTransactions((current) => {
       const nextTransactions = dedupe([...imported, ...current.filter((transaction) => transaction.statementId !== statementId)]);
-      if (authUser) saveLocalSnapshot(authUser.id, nextTransactions, pendingImport.period);
+      if (authUser) void saveLocalSnapshot(authUser.id, nextTransactions, pendingImport.period);
       return nextTransactions;
     });
     setUploadStatus(`${imported.length} transactions saved`);
@@ -463,7 +470,6 @@ export default function FinWiseApp() {
     });
     if (pendingImport.period) {
       setLatestPeriod(pendingImport.period);
-      window.localStorage.setItem("finwise.latestPeriod", JSON.stringify(pendingImport.period));
     }
     setPendingImport(null);
     setActiveView("transactions");
@@ -2408,40 +2414,6 @@ function getUserDisplayName(user: User | null) {
   if (emailName?.trim()) return toTitle(emailName.trim().split(/\s+/)[0]);
 
   return "there";
-}
-
-function loadLocalSnapshot(userId: string): LocalSnapshot | null {
-  if (typeof window === "undefined") return null;
-
-  try {
-    const raw = window.localStorage.getItem(getLocalSnapshotKey(userId));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as LocalSnapshot;
-    if (!Array.isArray(parsed.transactions)) return null;
-    return parsed;
-  } catch {
-    window.localStorage.removeItem(getLocalSnapshotKey(userId));
-    return null;
-  }
-}
-
-function saveLocalSnapshot(userId: string, transactions: Transaction[], latestPeriod: StatementPeriodInfo | null) {
-  if (typeof window === "undefined") return;
-
-  try {
-    const snapshot: LocalSnapshot = {
-      transactions,
-      latestPeriod,
-      savedAt: new Date().toISOString()
-    };
-    window.localStorage.setItem(getLocalSnapshotKey(userId), JSON.stringify(snapshot));
-  } catch {
-    // Local backup is best-effort; Supabase remains the source of truth.
-  }
-}
-
-function getLocalSnapshotKey(userId: string) {
-  return `finwise.snapshot.${userId}`;
 }
 
 function useAppViewportWidth() {
