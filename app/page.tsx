@@ -13,7 +13,13 @@ import {
   applyMerchantCorrection, applySavedMerchantRules, dedupe, getLatestPeriodFromTransactions,
   getStoredMerchantRules, getUserDisplayName, mergeMerchantRules, sanitizeTransactions, saveMerchantRule
 } from "@/lib/finance-view-model";
-import { clearLocalSnapshot, loadLocalSnapshot, saveLocalSnapshot } from "@/lib/local-cache";
+import {
+  hasPendingLocalSync,
+  loadLocalSnapshot,
+  markLocalSnapshotSynced,
+  reconcileLocalAndCloud,
+  saveLocalSnapshot
+} from "@/lib/local-cache";
 import { cacheMerchantLogoOverrides, mergeLogoOverrides, preloadMerchantLogos } from "@/lib/merchant-logos";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase-client";
 import type { MerchantLogoRecord, MerchantRule, Transaction } from "@/lib/types";
@@ -44,6 +50,9 @@ export default function FinWiseApp() {
   const [merchantLogoOverrides, setMerchantLogoOverrides] = useState<MerchantLogoRecord[]>([]);
   const [localCacheReady, setLocalCacheReady] = useState(isSupabaseConfigured);
   const userChangedDataRef = useRef(false);
+  const forceFullSyncRef = useRef(false);
+  const syncGenerationRef = useRef(0);
+  const [syncRetryTick, setSyncRetryTick] = useState(0);
   const restoreInputRef = useRef<HTMLInputElement | null>(null);
   const displayName = getUserDisplayName(authUser);
   const transactionCount = transactions.length;
@@ -99,6 +108,19 @@ export default function FinWiseApp() {
   }, []);
 
   useEffect(() => {
+    const retry = () => setSyncRetryTick((current) => current + 1);
+    const retryWhenVisible = () => {
+      if (document.visibilityState === "visible") retry();
+    };
+    window.addEventListener("online", retry);
+    document.addEventListener("visibilitychange", retryWhenVisible);
+    return () => {
+      window.removeEventListener("online", retry);
+      document.removeEventListener("visibilitychange", retryWhenVisible);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!isSupabaseConfigured || !authUser) return;
 
     let cancelled = false;
@@ -112,7 +134,7 @@ export default function FinWiseApp() {
         setTransactions(cleanLocal);
         setLatestPeriod(localSnapshot.latestPeriod);
         setUploadStatus(`${cleanLocal.length} transactions`);
-        setSyncStatus("Loaded from this device");
+        setSyncStatus(hasPendingLocalSync(localSnapshot) ? "Saved on this device" : "Loaded from this device");
       } else {
         setSyncStatus("Loading account data...");
       }
@@ -120,28 +142,48 @@ export default function FinWiseApp() {
       try {
         const data = await loadFinWiseData(authUser!.id);
         if (cancelled) return;
-        const clean = dedupe(sanitizeTransactions(data?.transactions ?? []));
+
+        const cleanCloud = dedupe(sanitizeTransactions(data?.transactions ?? []));
+        const reconciled = reconcileLocalAndCloud(
+          localSnapshot,
+          cleanCloud,
+          data?.latest_period ?? null,
+          data?.tombstones ?? []
+        );
         const localRules = mergeMerchantRules(data?.merchant_rules ?? [], getStoredMerchantRules());
-        const fallback = clean.length ? null : localSnapshot;
         const nextTransactions = applySavedMerchantRules(
-          clean.length ? clean : dedupe(sanitizeTransactions(fallback?.transactions ?? [])),
+          dedupe(sanitizeTransactions(reconciled.transactions)),
           localRules
         );
-        const nextPeriod = data?.latest_period ?? fallback?.latestPeriod ?? null;
+        const nextPeriod = reconciled.latestPeriod;
         const logoOverrides = await loadMerchantLogoOverrides(authUser!.id);
         if (cancelled) return;
+
+        forceFullSyncRef.current = Boolean(data && !data.normalized);
+        userChangedDataRef.current = reconciled.hasPendingSync || forceFullSyncRef.current;
         setTransactions(nextTransactions);
         setLatestPeriod(nextPeriod);
         setMerchantLogoOverrides(logoOverrides);
         setUploadStatus(nextTransactions.length ? `${nextTransactions.length} transactions` : "No uploads yet");
         window.localStorage.setItem("finwise.merchantRules", JSON.stringify(localRules));
         cacheMerchantLogoOverrides(logoOverrides);
+        if (!reconciled.hasPendingSync && data?.normalized) {
+          await saveLocalSnapshot(authUser!.id, nextTransactions, nextPeriod, { replaceFromCloud: true });
+        }
+        if (cancelled) return;
         setCloudLoaded(true);
-        setSyncStatus(clean.length ? "Synced" : nextTransactions.length ? "Loaded from this device" : "Ready for first upload");
+        setSyncStatus(
+          reconciled.hasPendingSync || forceFullSyncRef.current
+            ? "Syncing device changes..."
+            : nextTransactions.length
+              ? "Synced"
+              : "Ready for first upload"
+        );
       } catch {
         if (cancelled) return;
         setCloudLoaded(true);
-        setSyncStatus(localSnapshot?.transactions.length ? "Loaded from this device" : "Cloud sync unavailable");
+        userChangedDataRef.current = hasPendingLocalSync(localSnapshot);
+        setSyncStatus(localSnapshot?.transactions.length ? "Offline - using device data" : "Cloud sync unavailable");
       }
     }
 
@@ -154,15 +196,74 @@ export default function FinWiseApp() {
 
   useEffect(() => {
     if (!isSupabaseConfigured || !authUser || !cloudLoaded) return;
-    if (transactions.length || latestPeriod) {
-      void saveLocalSnapshot(authUser.id, transactions, latestPeriod);
+
+    const generation = ++syncGenerationRef.current;
+    const timer = window.setTimeout(() => {
+      void syncPendingChanges();
+    }, 450);
+
+    async function syncPendingChanges() {
+      const snapshot = await saveLocalSnapshot(
+        authUser!.id,
+        transactions,
+        latestPeriod,
+        { markDirty: userChangedDataRef.current }
+      );
+      const forceFull = forceFullSyncRef.current;
+      if (!hasPendingLocalSync(snapshot) && !forceFull) return;
+
+      setSyncStatus("Syncing...");
+      const result = await saveFinWiseData(
+        authUser!.id,
+        snapshot.transactions,
+        snapshot.latestPeriod,
+        getStoredMerchantRules(),
+        {
+          dirtyTransactionIds: snapshot.sync.dirtyTransactionIds,
+          deletedTransactions: snapshot.sync.deletedTransactions,
+          deletedStatementIds: snapshot.sync.deletedStatementIds,
+          deviceId: snapshot.sync.deviceId,
+          forceFull
+        }
+      );
+      if (generation !== syncGenerationRef.current) return;
+
+      if (!result.ok) {
+        setSyncStatus("Saved on device - waiting for connection");
+        return;
+      }
+      if (result.usedLegacyFallback) {
+        forceFullSyncRef.current = true;
+        setSyncStatus("Database migration required");
+        return;
+      }
+
+      const remoteIds = new Set(result.remoteWins.map((transaction) => transaction.id));
+      const resolvedTransactions = result.remoteWins.length
+        ? dedupe([
+            ...result.remoteWins,
+            ...snapshot.transactions.filter((transaction) => !remoteIds.has(transaction.id))
+          ])
+        : snapshot.transactions;
+
+      if (result.remoteWins.length) {
+        setTransactions(resolvedTransactions);
+        toast.message("Cloud changes were newer", {
+          description: `${result.remoteWins.length} transaction conflict${result.remoteWins.length === 1 ? "" : "s"} resolved safely.`
+        });
+      }
+      await markLocalSnapshotSynced(
+        authUser!.id,
+        resolvedTransactions,
+        snapshot.latestPeriod
+      );
+      userChangedDataRef.current = false;
+      forceFullSyncRef.current = false;
+      setSyncStatus("Synced");
     }
-    if (!userChangedDataRef.current) return;
-    saveFinWiseData(authUser.id, transactions, latestPeriod, getStoredMerchantRules()).then((ok) => {
-      setSyncStatus(ok ? "Synced" : "Sync failed");
-      if (ok) userChangedDataRef.current = false;
-    });
-  }, [transactions, latestPeriod, authUser, cloudLoaded]);
+
+    return () => window.clearTimeout(timer);
+  }, [transactions, latestPeriod, authUser, cloudLoaded, syncRetryTick]);
 
   useEffect(() => {
     if (!transactions.length) return;
@@ -177,7 +278,6 @@ export default function FinWiseApp() {
     setLatestPeriod(null);
     setPendingImport(null);
     setUploadStatus("No uploads yet");
-    void clearLocalSnapshot(authUser?.id ?? null);
     toast.success("Imported data cleared", {
       description: "Your dashboard is ready for a fresh statement.",
       action: previousTransactions.length
@@ -203,9 +303,6 @@ export default function FinWiseApp() {
     setTransactions(nextTransactions);
     const nextLatest = getLatestPeriodFromTransactions(nextTransactions);
     setLatestPeriod(nextLatest);
-    if (!nextTransactions.length) {
-      void clearLocalSnapshot(authUser?.id ?? null);
-    }
     setUploadStatus(nextTransactions.length ? `${nextTransactions.length} transactions` : "No uploads yet");
     toast.success("Statement removed", {
       description: nextTransactions.length ? `${nextTransactions.length} transactions remain.` : "No imported transactions remain.",
@@ -365,7 +462,6 @@ export default function FinWiseApp() {
     }
     setTransactions((current) => {
       const nextTransactions = dedupe([...imported, ...current.filter((transaction) => transaction.statementId !== statementId)]);
-      if (authUser) void saveLocalSnapshot(authUser.id, nextTransactions, pendingImport.period);
       return nextTransactions;
     });
     setUploadStatus(`${imported.length} transactions saved`);

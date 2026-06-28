@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { toast } from "sonner";
 import {
@@ -25,6 +25,7 @@ export function TransactionsPage({ transactions, setTransactions, setActiveView,
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ "June 2026": true, "May 2026": true, "April 2026": true });
   const [sheet, setSheet] = useState<string | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [visibleLimit, setVisibleLimit] = useState(100);
   const groups = useMemo(() => groupTransactionsByMonth(transactions), [transactions]);
   const statements = useMemo(() => getStatementSummaries(transactions, null), [transactions]);
   const summary = useMemo(() => getSummary(transactions), [transactions]);
@@ -52,6 +53,26 @@ export function TransactionsPage({ transactions, setTransactions, setActiveView,
         .filter((group) => group.rows.length > 0),
     [groups, search, activeChip]
   );
+
+  const filteredTransactionCount = useMemo(
+    () => filteredGroups.reduce((total, group) => total + group.rows.length, 0),
+    [filteredGroups]
+  );
+  const visibleGroups = useMemo(() => {
+    let remaining = visibleLimit;
+    return filteredGroups
+      .map((group) => {
+        const rows = group.rows.slice(0, Math.max(0, remaining));
+        remaining -= rows.length;
+        return { ...group, rows };
+      })
+      .filter((group) => group.rows.length > 0);
+  }, [filteredGroups, visibleLimit]);
+  const hasMoreTransactions = visibleLimit < filteredTransactionCount;
+
+  useEffect(() => {
+    setVisibleLimit(100);
+  }, [activeChip, search]);
 
   return (
     <section>
@@ -141,7 +162,7 @@ export function TransactionsPage({ transactions, setTransactions, setActiveView,
       </div>
 
       <div className="mt-3 grid gap-4">
-        {filteredGroups.length ? filteredGroups.map((group) => (
+        {visibleGroups.length ? visibleGroups.map((group) => (
           <section key={group.month} className="overflow-hidden rounded-[22px] bg-white shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
             <button onClick={() => setExpanded((current) => ({ ...current, [group.month]: !current[group.month] }))} className="flex w-full items-center justify-between px-4 py-3 text-left">
               <h2 className="text-[18px] font-extrabold tracking-[-0.02em] text-[#0F172A]">{group.month}</h2>
@@ -159,7 +180,11 @@ export function TransactionsPage({ transactions, setTransactions, setActiveView,
         )}
       </div>
 
-      {filteredGroups.length ? <button onClick={() => setSheet("More transactions")} className="mt-4 h-12 w-full rounded-[16px] bg-white text-[14px] font-extrabold text-[#0F172A] shadow-[0_8px_22px_rgba(15,23,42,0.04)] ring-1 ring-[#E2E8F0]">Load more transactions</button> : null}
+      {hasMoreTransactions ? (
+        <button onClick={() => setVisibleLimit((current) => current + 100)} className="mt-4 h-12 w-full rounded-[16px] bg-white text-[14px] font-extrabold text-[#0F172A] shadow-[0_8px_22px_rgba(15,23,42,0.04)] ring-1 ring-[#E2E8F0]">
+          Load 100 more transactions
+        </button>
+      ) : null}
       <BottomSheet title={sheet} transactions={transactions} onClose={() => setSheet(null)} />
       <CategoryCorrectionSheet
         transaction={editingTransaction}

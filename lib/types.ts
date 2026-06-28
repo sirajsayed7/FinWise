@@ -40,6 +40,7 @@ export type Transaction = {
   needsReview: boolean;
   categorySource: CategorizationSource;
   duplicateHash: string;
+  updatedAt?: string;
 };
 
 export type MerchantRule = {
@@ -67,6 +68,8 @@ export type StatementRecord = {
   fileHash?: string | null;
   blobUrl?: string | null;
   uploadedAt: string;
+  updatedAt?: string;
+  deviceId?: string;
 };
 
 export type MerchantLogoRecord = {
@@ -84,6 +87,13 @@ export type BudgetRecord = {
   amount: number;
   currency: string;
   period: "monthly" | "weekly";
+};
+
+export type TransactionTombstone = {
+  transactionId: string;
+  statementId?: string;
+  deletedAt: string;
+  deviceId?: string;
 };
 
 export type DashboardSummary = {
