@@ -46,9 +46,9 @@ export function UploadPage({
       <div className="mt-4 rounded-[24px] bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
         <h3 className="text-[17px] font-extrabold">Statement details</h3>
         <div className="mt-3 grid gap-3">
-          <FieldPreview label="Bank name" value="QNB" />
+          <FieldPreview label="Bank name" value={pendingImport?.bank ?? "Detected automatically"} />
           <FieldPreview label="Detected period" value={latestPeriod ? latestPeriod.label : "Detected after upload"} />
-          <FieldPreview label="Currency" value="QAR" />
+          <FieldPreview label="Currency" value={pendingImport?.currency ?? "Detected automatically"} />
         </div>
         <p className="mt-4 rounded-[16px] bg-emerald-50 p-3 text-[13px] font-semibold leading-snug text-emerald-700">Privacy default: the original statement is deleted after processing. FinWise stores only extracted transaction data.</p>
         {hasUploads ? (
@@ -88,11 +88,25 @@ function ImportReviewCard({ pendingImport, onConfirm, onCancel, onRemove, onUpda
       </div>
 
       <div className="mt-3 grid grid-cols-3 gap-2">
-        <MiniMetric label="Income" value={`QAR ${formatDisplayAmount(summary.income)}`} tone="green" />
-        <MiniMetric label="Spent" value={`QAR ${formatDisplayAmount(summary.expenses)}`} tone="red" />
-        <MiniMetric label="Net" value={`QAR ${formatDisplayAmount(summary.balance)}`} />
+        <MiniMetric label="Income" value={pendingImport.currency + " " + formatDisplayAmount(summary.income)} tone="green" />
+        <MiniMetric label="Spent" value={pendingImport.currency + " " + formatDisplayAmount(summary.expenses)} tone="red" />
+        <MiniMetric label="Net" value={pendingImport.currency + " " + formatDisplayAmount(summary.balance)} />
       </div>
 
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-bold">
+        <span className="rounded-full bg-violet-50 px-2.5 py-1 text-violet-700">{pendingImport.bank}</span>
+        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">{pendingImport.currency}</span>
+        {pendingImport.diagnostics ? (
+          <span className={pendingImport.diagnostics.confidence >= 0.75 ? "rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-700" : "rounded-full bg-amber-50 px-2.5 py-1 text-amber-700"}>
+            {Math.round(pendingImport.diagnostics.confidence * 100)}% parse confidence
+          </span>
+        ) : null}
+      </div>
+      {pendingImport.diagnostics?.warnings.length ? (
+        <div className="mt-3 rounded-[14px] bg-amber-50 px-3 py-2 text-[11.5px] font-semibold leading-relaxed text-amber-800">
+          {pendingImport.diagnostics.warnings.join(" ")}
+        </div>
+      ) : null}
       <div className="mt-3 max-h-[390px] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-[18px] bg-[#F8FAFC] p-2 ring-1 ring-[#E2E8F0]">
         <div className="grid min-w-0 gap-2">
           {pendingImport.transactions.map((transaction, index) => (

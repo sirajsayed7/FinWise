@@ -27,7 +27,14 @@ export type StatementSummary = {
 export type PendingImport = {
   statementId?: string;
   fileName: string;
+  bank: string;
+  currency: string;
   period: StatementPeriodInfo | null;
+  diagnostics?: {
+    confidence: number;
+    layout: string;
+    warnings: string[];
+  };
   transactions: Transaction[];
 };
 

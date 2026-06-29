@@ -6,6 +6,9 @@ import { read, utils } from "xlsx";
 import Papa from "papaparse";
 import { differenceInCalendarDays, format, isValid, parse, parseISO } from "date-fns";
 import { categorizeMerchant, cleanMerchant } from "@/lib/categorization";
+import { extractStatementRowsWithAI } from "@/lib/ai-statement-extraction";
+import { parsePdfStatementText, type StatementParseDiagnostics } from "@/lib/pdf-statement-parser";
+import { detectStatementProfile, type StatementProfile } from "@/lib/statement-profiles";
 import type { MerchantRule, Transaction, TransactionDirection } from "@/lib/types";
 
 type RawRow = Record<string, string>;
@@ -18,25 +21,35 @@ export type StatementPeriod = {
   label: string;
 };
 
-const dateKeys = ["date", "transaction date", "posting date", "value date", "txn date", "booking date"];
-const descriptionKeys = ["description", "details", "merchant", "narrative", "transaction", "transaction details", "particulars", "reference", "memo"];
+export type ParsedStatementFile = {
+  transactions: Transaction[];
+  profile: StatementProfile;
+  diagnostics: StatementParseDiagnostics;
+};
+
+const dateKeys = ["date", "statement date", "transaction date", "posting date", "value date", "txn date", "booking date"];
+const descriptionKeys = ["description", "details", "merchant", "narration", "narrative", "transaction", "transaction details", "particulars", "reference", "memo"];
 const amountKeys = ["amount", "transaction amount", "debit", "credit", "paid out", "paid in", "withdrawal", "deposit"];
-const debitKeys = ["debit", "paid out", "withdrawal", "withdrawals", "debit amount"];
-const creditKeys = ["credit", "paid in", "deposit", "deposits", "credit amount"];
+const debitKeys = ["debit", "paid out", "out", "withdrawal", "withdrawals", "debit amount"];
+const creditKeys = ["credit", "paid in", "in", "deposit", "deposits", "credit amount"];
 const maxPersonalTransactionAmount = 1_000_000;
 
-export async function parseStatementFile(file: File, bank: string, rules: MerchantRule[] = []) {
+export async function parseStatementFile(file: File, bank = "Auto detect", rules: MerchantRule[] = []): Promise<ParsedStatementFile> {
   const extension = file.name.split(".").pop()?.toLowerCase();
 
   if (extension === "csv" || extension === "txt") {
-    return parseRows(parseDelimited(await file.text()), bank, "QAR", rules);
+    const input = await file.text();
+    const rows = parseDelimited(input);
+    const profile = detectStatementProfile(file.name + " " + Object.keys(rows[0] ?? {}).join(" "), bank);
+    return buildParsedStatement(rows, profile, rules);
   }
 
   if (extension === "xls" || extension === "xlsx") {
     const workbook = read(await file.arrayBuffer(), { type: "array", cellDates: true });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows = utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" }).map(normalizeObjectRow);
-    return parseRows(rows, bank, "QAR", rules);
+    const profile = detectStatementProfile(file.name + " " + Object.keys(rows[0] ?? {}).join(" "), bank);
+    return buildParsedStatement(rows, profile, rules);
   }
 
   if (extension === "pdf") {
@@ -47,15 +60,79 @@ export async function parseStatementFile(file: File, bank: string, rules: Mercha
     const parser = new PDFParse({ data: buffer });
     try {
       const parsed = await parser.getText();
-      return parseRows(parsePdfText(parsed.text), bank, "QAR", rules);
+      try {
+        const local = parseStatementText(parsed.text, bank, rules);
+        if (local.diagnostics.confidence >= 0.62 || !process.env.OPENAI_API_KEY) return local;
+        const ai = await extractStatementRowsWithAI(buffer, file.name);
+        return ai ? buildParsedStatement(ai.rows, ai.profile, rules, ai.diagnostics) : local;
+      } catch (localError) {
+        const ai = await extractStatementRowsWithAI(buffer, file.name);
+        if (ai) return buildParsedStatement(ai.rows, ai.profile, rules, ai.diagnostics);
+        throw localError;
+      }
     } finally {
       await parser.destroy();
     }
   }
 
-  throw new Error("Unsupported statement format. Upload CSV, TXT, XLS, XLSX, or a text-based PDF.");
+  throw new Error("Unsupported statement format. Upload CSV, TXT, XLS, XLSX, or PDF.");
 }
 
+export function parseStatementText(text: string, bank = "Auto detect", rules: MerchantRule[] = []): ParsedStatementFile {
+  if (text.replace(/\s+/g, "").length < 80) {
+    throw new Error("This PDF has no readable text layer. Export a digital statement or enable AI document extraction.");
+  }
+
+  const generic = parsePdfStatementText(text, bank);
+  const dedicatedRows = parseDebitCreditPdfTable(text);
+  const rows = dedicatedRows.length >= generic.rows.length ? dedicatedRows : generic.rows;
+  const result = buildParsedStatement(rows, generic.profile, rules, generic.diagnostics);
+  if (!result.transactions.length) {
+    throw new Error("No transactions found. The statement is readable, but its table layout needs review.");
+  }
+  return result;
+}
+
+function buildParsedStatement(
+  rows: RawRow[],
+  profile: StatementProfile,
+  rules: MerchantRule[],
+  diagnostics?: StatementParseDiagnostics
+): ParsedStatementFile {
+  const transactions = parseRows(rows, profile.bank, profile.currency, rules);
+  transactions.forEach((transaction, index) => {
+    const warning = rows[index]?.["parse warning"];
+    const aiConfidence = Number(rows[index]?.["ai confidence"]);
+    if (warning) {
+      transaction.needsReview = true;
+      transaction.confidence = Math.min(transaction.confidence, 0.55);
+      transaction.reason = warning;
+    } else if (Number.isFinite(aiConfidence) && aiConfidence < 0.75) {
+      transaction.needsReview = true;
+      transaction.confidence = Math.min(transaction.confidence, aiConfidence);
+      transaction.reason = "AI extraction confidence is low; verify this row before saving.";
+    }
+  });
+
+  return {
+    transactions,
+    profile,
+    diagnostics: diagnostics
+      ? { ...diagnostics, rowCount: transactions.length }
+      : {
+          profileId: profile.id,
+          bank: profile.bank,
+          currency: profile.currency,
+          layout: profile.layout,
+          extractionMethod: "local_text",
+          rowCount: transactions.length,
+          balanceChecks: 0,
+          balanceMatches: 0,
+          confidence: profile.confidence,
+          warnings: profile.id === "generic" ? ["Bank identity was not detected automatically."] : []
+        }
+  };
+}
 function installPdfRuntimeGlobals() {
   const canvas = requirePdfParser("@napi-rs/canvas") as {
     DOMMatrix?: typeof DOMMatrix;
@@ -306,7 +383,7 @@ function parseMoney(value?: string) {
   if (/^\s*-?\s*$/.test(value)) return null;
   const isParenthesized = /^\s*\(.*\)\s*$/.test(value);
   const isNegative = /-/.test(value) || isParenthesized;
-  const normalized = value.replace(/(?:QAR|QR|USD|EUR|GBP)/gi, "").replace(/[(),\s+-]/g, "");
+  const normalized = value.replace(/(?:QAR|QR|AED|USD|EUR|GBP|SAR|BHD|KWD|OMR)/gi, "").replace(/[(),\s+-]/g, "");
   const parsed = Number(normalized);
   if (!Number.isFinite(parsed)) return null;
   return isNegative ? -Math.abs(parsed) : parsed;
@@ -314,7 +391,7 @@ function parseMoney(value?: string) {
 
 function normalizeDate(value: string) {
   const trimmed = value.trim();
-  const formats = ["yyyy-MM-dd", "yyyy/MM/dd", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy", "d-M-yyyy", "MM/dd/yyyy", "M/d/yyyy", "dd/MM/yy", "d/M/yy"];
+  const formats = ["yyyy-MM-dd", "yyyy/MM/dd", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy", "d-M-yyyy", "MM/dd/yyyy", "M/d/yyyy", "dd/MM/yy", "d/M/yy", "dd MMM yyyy", "d MMM yyyy", "dd-MMM-yyyy", "d-MMM-yyyy", "dd MMM yy", "d MMM yy", "dd-MMM-yy", "d-MMM-yy"];
   for (const dateFormat of formats) {
     const parsed = parse(trimmed, dateFormat, new Date());
     if (isValid(parsed)) return format(parsed, "yyyy-MM-dd");
@@ -335,7 +412,9 @@ function normalizeHeader(header: string) {
     .trim()
     .toLowerCase()
     .replace(/^\ufeff/, "")
-    .replace(/\s+/g, " ");
+    .replace(/\s*\([^)]*\)\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function isNonTransactionDescription(description: string) {

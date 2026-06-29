@@ -430,7 +430,7 @@ export default function FinWiseApp() {
 
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("bank", "QNB");
+    formData.append("bank", "Auto detect");
     formData.append("keepOriginal", "false");
     formData.append("rules", window.localStorage.getItem("finwise.merchantRules") ?? "[]");
     setUploadStatus("Uploading and categorizing...");
@@ -445,6 +445,9 @@ export default function FinWiseApp() {
         fileHash?: string;
         status?: string;
         transactionCount?: number;
+        bank?: string;
+        currency?: string;
+        diagnostics?: { confidence: number; layout: string; warnings: string[] };
         period?: StatementPeriodInfo;
       };
     };
@@ -480,6 +483,9 @@ export default function FinWiseApp() {
     setPendingImport({
       statementId,
       fileName: payload.statement?.fileName ?? file.name,
+      bank: payload.statement?.bank ?? imported[0]?.bank ?? "Unknown Bank",
+      currency: payload.statement?.currency ?? imported[0]?.currency ?? "QAR",
+      diagnostics: payload.statement?.diagnostics,
       period: payload.statement?.period ?? null,
       transactions: imported
     });

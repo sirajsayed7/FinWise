@@ -13,7 +13,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Could not read upload. Please choose a valid CSV, Excel, or text-based PDF statement and try again." }, { status: 400 });
   }
   const file = formData.get("file");
-  const bank = String(formData.get("bank") || "Unknown Bank");
+  const bank = String(formData.get("bank") || "Auto detect");
   const keepOriginal = String(formData.get("keepOriginal") || "false") === "true";
   const rules = parseRules(String(formData.get("rules") || "[]"));
 
@@ -38,9 +38,10 @@ export async function POST(request: Request) {
 
   try {
     const parseFile = new File([fileBuffer], file.name, { type: file.type || "application/octet-stream" });
-    const parsedTransactions = await parseStatementFile(parseFile, bank, rules);
-    const categorized = await categorizeUnknownTransactions(parsedTransactions);
+    const parsedStatement = await parseStatementFile(parseFile, bank, rules);
+    const categorized = await categorizeUnknownTransactions(parsedStatement.transactions);
     const period = getStatementPeriod(categorized);
+    const statementStatus = parsedStatement.diagnostics.confidence < 0.75 ? "review" as const : "processed" as const;
     const summary = categorized.reduce(
       (current, transaction) => {
         if (transaction.direction === "income") current.totalIncome += transaction.amount;
@@ -55,23 +56,24 @@ export async function POST(request: Request) {
       statementFileName: file.name,
       statementUploadedAt: uploadedAt,
       statementPeriodLabel: period.label,
-      statementStatus: "processed" as const
+      statementStatus
     }));
 
     return NextResponse.json({
       statement: {
         id: statementId,
         fileName: file.name,
-        bank,
-        currency: transactions[0]?.currency ?? "QAR",
+        bank: parsedStatement.profile.bank,
+        currency: parsedStatement.profile.currency,
         fileHash,
         blobUrl: keepOriginal ? blobUrl : null,
-        status: "processed",
+        status: statementStatus,
         uploadedAt,
         transactionCount: transactions.length,
         totalIncome: summary.totalIncome,
         totalExpenses: summary.totalExpenses,
-        period
+        period,
+        diagnostics: parsedStatement.diagnostics
       },
       transactions
     });
