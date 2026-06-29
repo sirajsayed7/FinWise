@@ -62,6 +62,10 @@ export function SettingsPage({ setActiveView, authEmail, syncStatus, onSignOut, 
           </div>
         </section>
         <SettingsGroup title="Categories" items={["Manage category colors and icons", "Merchant rules", "Low-confidence review queue"]} />
+        <button onClick={() => setActiveView("planning")} className="flex min-h-[56px] items-center justify-between rounded-[20px] bg-white px-4 text-left shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
+          <span className="text-[15px] font-extrabold">Budgets & financial goals</span>
+          <ChevronIcon />
+        </button>
         <button onClick={() => setActiveView("review")} className="flex min-h-[56px] items-center justify-between rounded-[20px] bg-white px-4 text-left shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]">
           <span className="text-[15px] font-extrabold">Review queue</span>
           <ChevronIcon />

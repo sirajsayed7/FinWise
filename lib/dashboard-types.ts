@@ -1,7 +1,7 @@
 import type { ChangeEvent } from "react";
 import type { Transaction } from "@/lib/types";
 
-export type ActiveView = "home" | "transactions" | "upload" | "insights" | "settings" | "statements" | "review";
+export type ActiveView = "home" | "transactions" | "upload" | "insights" | "settings" | "statements" | "review" | "planning" | "notifications";
 export type SpendingPeriod = "This Month" | "Last Month" | "Year";
 
 export type StatementPeriodInfo = {

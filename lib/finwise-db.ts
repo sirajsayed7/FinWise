@@ -2,6 +2,8 @@ import { getSupabase } from "@/lib/supabase-client";
 import type {
   BudgetRecord,
   MerchantLogoRecord,
+  DashboardMetrics,
+  FinancialGoal,
   MerchantRule,
   Transaction,
   TransactionTombstone
@@ -20,6 +22,9 @@ export type FinWiseCloudData = {
   merchant_rules: MerchantRule[];
   tombstones: TransactionTombstone[];
   normalized: boolean;
+  hasMore: boolean;
+  nextOffset: number;
+  metrics: DashboardMetrics;
 };
 
 export type FinWiseSyncOptions = {
@@ -115,7 +120,16 @@ type BudgetRow = {
   period: BudgetRecord["period"];
 };
 
-const TRANSACTION_PAGE_SIZE = 500;
+type GoalRow = {
+  id: string;
+  name: string;
+  target_amount: number;
+  current_amount: number;
+  target_date: string | null;
+  created_at: string;
+};
+
+const TRANSACTION_PAGE_SIZE = 100;
 const WRITE_CHUNK_SIZE = 400;
 
 const TRANSACTION_COLUMNS = "id,statement_id,date,bank,description_raw,merchant,amount,direction,currency,category,subcategory,confidence,reason,needs_review,category_source,duplicate_hash,client_updated_at,updated_at,device_id";
@@ -126,8 +140,8 @@ export async function loadFinWiseData(userId: string): Promise<FinWiseCloudData 
   if (!supabase) return null;
 
   try {
-    const [transactionRows, statementResult, ruleResult, tombstoneResult] = await Promise.all([
-      loadAllTransactionRowsPaged(userId),
+    const [transactionPage, statementResult, ruleResult, tombstoneResult, metrics] = await Promise.all([
+      loadTransactionPage(userId, 0, TRANSACTION_PAGE_SIZE),
       supabase
         .from("statements")
         .select(STATEMENT_COLUMNS)
@@ -142,7 +156,8 @@ export async function loadFinWiseData(userId: string): Promise<FinWiseCloudData 
         .from("transaction_tombstones")
         .select("transaction_id,statement_id,deleted_at,device_id")
         .eq("user_id", userId)
-        .order("deleted_at", { ascending: false })
+        .order("deleted_at", { ascending: false }),
+      loadDashboardMetrics(userId)
     ]);
 
     if (statementResult.error) throw statementResult.error;
@@ -150,12 +165,10 @@ export async function loadFinWiseData(userId: string): Promise<FinWiseCloudData 
     if (tombstoneResult.error) throw tombstoneResult.error;
 
     const statementRows = (statementResult.data ?? []) as StatementRow[];
-    const statementsById = new Map(statementRows.map((row) => [row.id, row]));
     return {
-      transactions: transactionRows.map((row) =>
-        rowToTransaction(row, statementsById.get(row.statement_id ?? ""))
-      ),
+      transactions: transactionPage.transactions,
       latest_period: statementRows[0] ? rowToPeriod(statementRows[0]) : null,
+      metrics: metrics.transactionCount || !transactionPage.transactions.length ? metrics : buildMetricsFromTransactions(transactionPage.transactions),
       merchant_rules: ((ruleResult.data ?? []) as MerchantRule[]).map((rule) => ({
         id: rule.id,
         pattern: rule.pattern,
@@ -164,7 +177,9 @@ export async function loadFinWiseData(userId: string): Promise<FinWiseCloudData 
         subcategory: rule.subcategory
       })),
       tombstones: ((tombstoneResult.data ?? []) as TombstoneRow[]).map(rowToTombstone),
-      normalized: true
+      normalized: true,
+      hasMore: transactionPage.hasMore,
+      nextOffset: transactionPage.nextOffset,
     };
   } catch {
     return loadLegacyData(userId);
@@ -204,6 +219,34 @@ export async function loadTransactionPage(
     hasMore: rows.length > pageSize,
     nextOffset: offset + Math.min(rows.length, pageSize)
   };
+}
+
+export async function loadDashboardMetrics(userId: string): Promise<DashboardMetrics> {
+  const supabase = getSupabase();
+  if (!supabase) return emptyDashboardMetrics();
+  const { data, error } = await supabase.rpc("get_finwise_dashboard_metrics");
+  if (error) return emptyDashboardMetrics();
+  const metrics = normalizeDashboardMetrics(data);
+  if (!metrics.transactionCount && userId) return metrics;
+  return metrics;
+}
+
+export async function deleteAllFinWiseData(userId: string) {
+  const supabase = getSupabase();
+  if (!supabase) return false;
+  const [{ error: transactionError }, { error: statementError }, { error: tombstoneError }] = await Promise.all([
+    supabase.from("transactions").delete().eq("user_id", userId),
+    supabase.from("statements").delete().eq("user_id", userId),
+    supabase.from("transaction_tombstones").delete().eq("user_id", userId)
+  ]);
+  return !transactionError && !statementError && !tombstoneError;
+}
+
+export async function deleteStatementData(userId: string, statementId: string) {
+  const supabase = getSupabase();
+  if (!supabase) return false;
+  const { error } = await supabase.from("statements").delete().eq("user_id", userId).eq("id", statementId);
+  return !error;
 }
 
 export async function saveFinWiseData(
@@ -456,28 +499,34 @@ export async function deleteBudget(
   return !error;
 }
 
-async function loadAllTransactionRowsPaged(userId: string) {
+export async function loadFinancialGoals(userId: string): Promise<FinancialGoal[]> {
   const supabase = getSupabase();
-  if (!supabase) return [] as TransactionRow[];
-  const rows: TransactionRow[] = [];
-  let offset = 0;
-
-  while (true) {
-    const { data, error } = await supabase
-      .from("transactions")
-      .select(TRANSACTION_COLUMNS)
-      .eq("user_id", userId)
-      .order("date", { ascending: false })
-      .order("id", { ascending: false })
-      .range(offset, offset + TRANSACTION_PAGE_SIZE - 1);
-    if (error) throw error;
-    const page = (data ?? []) as TransactionRow[];
-    rows.push(...page);
-    if (page.length < TRANSACTION_PAGE_SIZE) break;
-    offset += page.length;
-  }
-  return rows;
+  if (!supabase) return [];
+  const { data, error } = await supabase.from("financial_goals").select("id,name,target_amount,current_amount,target_date,created_at").eq("user_id", userId).order("created_at");
+  if (error) return [];
+  return ((data ?? []) as GoalRow[]).map((row) => ({
+    id: row.id, name: row.name, targetAmount: Number(row.target_amount),
+    currentAmount: Number(row.current_amount), targetDate: row.target_date, createdAt: row.created_at
+  }));
 }
+
+export async function saveFinancialGoal(userId: string, goal: FinancialGoal) {
+  const supabase = getSupabase();
+  if (!supabase) return false;
+  const { error } = await supabase.from("financial_goals").upsert({
+    user_id: userId, id: goal.id, name: goal.name, target_amount: goal.targetAmount,
+    current_amount: goal.currentAmount, target_date: goal.targetDate
+  }, { onConflict: "user_id,id" });
+  return !error;
+}
+
+export async function deleteFinancialGoal(userId: string, goalId: string) {
+  const supabase = getSupabase();
+  if (!supabase) return false;
+  const { error } = await supabase.from("financial_goals").delete().eq("user_id", userId).eq("id", goalId);
+  return !error;
+}
+
 
 async function loadRowsByIds(userId: string, ids: string[]) {
   const supabase = getSupabase();
@@ -532,7 +581,10 @@ async function loadLegacyData(userId: string): Promise<FinWiseCloudData | null> 
     latest_period: data.latest_period ?? null,
     merchant_rules: data.merchant_rules ?? [],
     tombstones: [],
-    normalized: false
+    normalized: false,
+    hasMore: false,
+    nextOffset: data.transactions?.length ?? 0,
+    metrics: buildMetricsFromTransactions(data.transactions ?? [])
   };
 }
 
@@ -694,6 +746,56 @@ function getFallbackStatementId(latestPeriod: StatementPeriodInfo | null) {
   const start = latestPeriod?.startDate ?? "unknown-start";
   const end = latestPeriod?.endDate ?? "unknown-end";
   return `statement:${start}:${end}`;
+}
+
+function emptyDashboardMetrics(): DashboardMetrics {
+  return { transactionCount: 0, statementCount: 0, needsReview: 0, totalIncome: 0, totalExpenses: 0, latestDate: null, categoryTotals: [], dailyExpenses: [], monthlyExpenses: [], merchantTotals: [] };
+}
+
+function normalizeDashboardMetrics(value: unknown): DashboardMetrics {
+  const row = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
+  const arrays = <T>(key: string) => Array.isArray(row[key]) ? row[key] as T[] : [];
+  return {
+    transactionCount: Number(row.transactionCount ?? 0),
+    statementCount: Number(row.statementCount ?? 0),
+    needsReview: Number(row.needsReview ?? 0),
+    totalIncome: Number(row.totalIncome ?? 0),
+    totalExpenses: Number(row.totalExpenses ?? 0),
+    latestDate: typeof row.latestDate === "string" ? row.latestDate : null,
+    categoryTotals: arrays<Record<string, unknown>>("categoryTotals").map((item) => ({ month: String(item.month), category: item.category as Transaction["category"], amount: Number(item.amount) })),
+    dailyExpenses: arrays<Record<string, unknown>>("dailyExpenses").map((item) => ({ date: String(item.date), amount: Number(item.amount) })),
+    monthlyExpenses: arrays<Record<string, unknown>>("monthlyExpenses").map((item) => ({ month: String(item.month), amount: Number(item.amount) })),
+    merchantTotals: arrays<Record<string, unknown>>("merchantTotals").map((item) => ({ month: String(item.month), merchant: String(item.merchant), amount: Number(item.amount), count: Number(item.count) }))
+  };
+}
+
+function buildMetricsFromTransactions(transactions: Transaction[]): DashboardMetrics {
+  const metrics = emptyDashboardMetrics();
+  metrics.transactionCount = transactions.length;
+  metrics.statementCount = new Set(transactions.map((row) => row.statementId).filter(Boolean)).size;
+  metrics.needsReview = transactions.filter((row) => row.needsReview || row.confidence < 0.75).length;
+  metrics.latestDate = transactions.reduce<string | null>((latest, row) => !latest || row.date > latest ? row.date : latest, null);
+  const categories = new Map<string, number>();
+  const days = new Map<string, number>();
+  const months = new Map<string, number>();
+  const merchants = new Map<string, { amount: number; count: number }>();
+  for (const row of transactions) {
+    if (row.direction === "income") { metrics.totalIncome += row.amount; continue; }
+    metrics.totalExpenses += row.amount;
+    const month = row.date.slice(0, 7);
+    const categoryKey = `${month}|${row.category}`;
+    const merchantKey = `${month}|${row.merchant}`;
+    categories.set(categoryKey, (categories.get(categoryKey) ?? 0) + row.amount);
+    days.set(row.date, (days.get(row.date) ?? 0) + row.amount);
+    months.set(month, (months.get(month) ?? 0) + row.amount);
+    const merchant = merchants.get(merchantKey) ?? { amount: 0, count: 0 };
+    merchants.set(merchantKey, { amount: merchant.amount + row.amount, count: merchant.count + 1 });
+  }
+  metrics.categoryTotals = Array.from(categories, ([key, amount]) => { const [month, category] = key.split("|"); return { month, category: category as Transaction["category"], amount }; });
+  metrics.dailyExpenses = Array.from(days, ([date, amount]) => ({ date, amount }));
+  metrics.monthlyExpenses = Array.from(months, ([month, amount]) => ({ month, amount }));
+  metrics.merchantTotals = Array.from(merchants, ([key, value]) => { const [month, merchant] = key.split("|"); return { month, merchant, ...value }; });
+  return metrics;
 }
 
 function chunks<T>(items: T[], size: number) {

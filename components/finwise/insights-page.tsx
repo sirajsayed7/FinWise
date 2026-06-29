@@ -6,29 +6,30 @@ import { ChevronIcon, RobotIcon, WalletIcon } from "@/components/finwise/icons";
 import { MerchantLogo } from "@/components/finwise/merchant-logo";
 import { BottomSheet } from "@/components/finwise/transaction-sheets";
 import { AppTopBar, InsightPanel } from "@/components/finwise/ui";
+import { metricComparison, metricMerchantRows, metricSpendingRows, metricTrendRows } from "@/lib/analytics-metrics";
 import { periods } from "@/lib/dashboard-constants";
 import type { SpendingPeriod } from "@/lib/dashboard-types";
 import {
   buildTrendRows, filterByPeriod, formatAmount, getFlexibleSavingsOpportunity,
   getInsightCategories, getMerchantInsights, getPeriodComparison, getRecommendations
 } from "@/lib/finance-view-model";
-import type { Transaction } from "@/lib/types";
+import type { DashboardMetrics, Transaction } from "@/lib/types";
 
 const SpendingTrendChart = dynamic(() => import("@/components/charts/spending-trend-chart"), {
   ssr: false,
   loading: () => <div className="h-[160px] w-full animate-pulse rounded-[16px] bg-[#F1F5F9]" />
 });
 
-export function InsightsPage({ transactions }: { transactions: Transaction[] }) {
+export function InsightsPage({ transactions, metrics }: { transactions: Transaction[]; metrics: DashboardMetrics | null }) {
   const [sheet, setSheet] = useState<string | null>(null);
   const [period, setPeriod] = useState<SpendingPeriod>("This Month");
   const viewportWidth = useAppViewportWidth();
   const trendChartWidth = Math.max(286, Math.min(360, viewportWidth - 74));
   const periodTransactions = useMemo(() => filterByPeriod(transactions, period), [transactions, period]);
-  const dynamicTrendRows = useMemo(() => buildTrendRows(transactions, period), [transactions, period]);
-  const dynamicInsightCategories = useMemo(() => getInsightCategories(transactions, period), [transactions, period]);
-  const dynamicMerchantInsights = useMemo(() => getMerchantInsights(transactions, period), [transactions, period]);
-  const comparison = useMemo(() => getPeriodComparison(transactions, period), [transactions, period]);
+  const dynamicTrendRows = useMemo(() => metrics ? metricTrendRows(metrics, period) : buildTrendRows(transactions, period), [metrics, transactions, period]);
+  const dynamicInsightCategories = useMemo(() => metrics ? metricSpendingRows(metrics, period).map((row) => ({ ...row, label: row.label === "Dining Out" ? "Ordering Out" : row.label })) : getInsightCategories(transactions, period), [metrics, transactions, period]);
+  const dynamicMerchantInsights = useMemo(() => metrics ? metricMerchantRows(metrics, period) : getMerchantInsights(transactions, period), [metrics, transactions, period]);
+  const comparison = useMemo(() => metrics ? metricComparison(metrics, period) : getPeriodComparison(transactions, period), [metrics, transactions, period]);
   const savings = useMemo(() => getFlexibleSavingsOpportunity(transactions, period), [transactions, period]);
   const recommendations = useMemo(() => getRecommendations(transactions, period), [transactions, period]);
   const topCategory = dynamicInsightCategories[0];

@@ -10,6 +10,7 @@ import { MerchantLogo } from "@/components/finwise/merchant-logo";
 import { BottomSheet, CategoryCorrectionSheet } from "@/components/finwise/transaction-sheets";
 import { AppTopBar, MetricCard, MiniMetric, PageHeader } from "@/components/finwise/ui";
 import { categoryAvatarStyles } from "@/lib/dashboard-constants";
+import { metricSummary } from "@/lib/analytics-metrics";
 import type { ActiveView, TransactionSetter } from "@/lib/dashboard-types";
 import {
   applyMerchantCorrection, applySavedMerchantRules, applySingleTransactionCorrection, formatAmount,
@@ -17,9 +18,9 @@ import {
   getStoredMerchantRules, getSummary, groupTransactionsByMonth, isReviewTransaction,
   saveMerchantRule, shouldApplyMerchantCorrection
 } from "@/lib/finance-view-model";
-import type { Transaction } from "@/lib/types";
+import type { DashboardMetrics, Transaction } from "@/lib/types";
 
-export function TransactionsPage({ transactions, setTransactions, setActiveView, onClearUploads }: { transactions: Transaction[]; setTransactions: (transactions: Transaction[] | ((current: Transaction[]) => Transaction[])) => void; setActiveView: (view: ActiveView) => void; onClearUploads: () => void }) {
+export function TransactionsPage({ transactions, metrics, hasMoreRemote, isLoadingMore, onLoadMore, setTransactions, setActiveView, onClearUploads }: { transactions: Transaction[]; metrics: DashboardMetrics | null; hasMoreRemote: boolean; isLoadingMore: boolean; onLoadMore: () => void; setTransactions: (transactions: Transaction[] | ((current: Transaction[]) => Transaction[])) => void; setActiveView: (view: ActiveView) => void; onClearUploads: () => void }) {
   const [search, setSearch] = useState("");
   const [activeChip, setActiveChip] = useState("All");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ "June 2026": true, "May 2026": true, "April 2026": true });
@@ -27,8 +28,9 @@ export function TransactionsPage({ transactions, setTransactions, setActiveView,
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [visibleLimit, setVisibleLimit] = useState(100);
   const groups = useMemo(() => groupTransactionsByMonth(transactions), [transactions]);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const statements = useMemo(() => getStatementSummaries(transactions, null), [transactions]);
-  const summary = useMemo(() => getSummary(transactions), [transactions]);
+  const summary = useMemo(() => metrics ? metricSummary(metrics) : getSummary(transactions), [metrics, transactions]);
   const reviewRows = useMemo(() => getReviewRows(transactions), [transactions]);
   const reviewStats = useMemo(() => getReviewStats(transactions), [transactions]);
 
@@ -68,11 +70,18 @@ export function TransactionsPage({ transactions, setTransactions, setActiveView,
       })
       .filter((group) => group.rows.length > 0);
   }, [filteredGroups, visibleLimit]);
-  const hasMoreTransactions = visibleLimit < filteredTransactionCount;
+  const hasMoreVisibleTransactions = visibleLimit < filteredTransactionCount;
 
   useEffect(() => {
     setVisibleLimit(100);
   }, [activeChip, search]);
+
+  useEffect(() => {
+    if (!hasMoreRemote || isLoadingMore || hasMoreVisibleTransactions || !loadMoreRef.current) return;
+    const observer = new IntersectionObserver((entries) => { if (entries[0]?.isIntersecting) onLoadMore(); }, { rootMargin: "280px" });
+    observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [hasMoreRemote, hasMoreVisibleTransactions, isLoadingMore, onLoadMore]);
 
   return (
     <section>
@@ -130,11 +139,11 @@ export function TransactionsPage({ transactions, setTransactions, setActiveView,
       </div>
 
         <div className="mt-4 grid grid-cols-2 gap-2.5">
-          <MetricCard label="Transactions" value={transactions.length.toLocaleString("en-US")} helper="All time" />
+          <MetricCard label="Transactions" value={(metrics?.transactionCount ?? transactions.length).toLocaleString("en-US")} helper="All time" />
           <MetricCard label="Total Spent" value={`QAR ${formatAmount(summary.expenses)}`} helper="All time" tone="red" />
           <MetricCard label="Total Income" value={`QAR ${formatAmount(summary.income)}`} helper="All time" tone="green" />
-          <MetricCard label="Statements" value={statements.length.toString()} helper="Processed" tone="purple" />
-          <MetricCard label="Needs Review" value={reviewStats.needsReview.toString()} helper={`${reviewStats.categorizedPercent}% categorized`} tone={reviewStats.needsReview ? "red" : "green"} />
+          <MetricCard label="Statements" value={(metrics?.statementCount ?? statements.length).toString()} helper="Processed" tone="purple" />
+          <MetricCard label="Needs Review" value={(metrics?.needsReview ?? reviewStats.needsReview).toString()} helper={`${reviewStats.categorizedPercent}% categorized`} tone={(metrics?.needsReview ?? reviewStats.needsReview) ? "red" : "green"} />
           <MetricCard label="Rules" value={reviewStats.ruleCount.toString()} helper="Saved locally" tone="purple" />
         </div>
 
@@ -180,11 +189,12 @@ export function TransactionsPage({ transactions, setTransactions, setActiveView,
         )}
       </div>
 
-      {hasMoreTransactions ? (
-        <button onClick={() => setVisibleLimit((current) => current + 100)} className="mt-4 h-12 w-full rounded-[16px] bg-white text-[14px] font-extrabold text-[#0F172A] shadow-[0_8px_22px_rgba(15,23,42,0.04)] ring-1 ring-[#E2E8F0]">
-          Load 100 more transactions
+      {hasMoreVisibleTransactions || hasMoreRemote ? (
+        <button disabled={isLoadingMore} onClick={() => hasMoreVisibleTransactions ? setVisibleLimit((current) => current + 100) : onLoadMore()} className="mt-4 h-12 w-full rounded-[16px] bg-white text-[14px] font-extrabold text-[#0F172A] shadow-[0_8px_22px_rgba(15,23,42,0.04)] ring-1 ring-[#E2E8F0] disabled:opacity-60">
+          {isLoadingMore ? "Loading older transactions..." : "Load 100 more transactions"}
         </button>
       ) : null}
+      <div ref={loadMoreRef} className="h-px" aria-hidden="true" />
       <BottomSheet title={sheet} transactions={transactions} onClose={() => setSheet(null)} />
       <CategoryCorrectionSheet
         transaction={editingTransaction}

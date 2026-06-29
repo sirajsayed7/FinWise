@@ -17,7 +17,8 @@ import {
 import { periods } from "@/lib/dashboard-constants";
 import type { ActiveView, SpendingPeriod, StatementPeriodInfo, UploadHandler } from "@/lib/dashboard-types";
 import { formatAmount, formatDisplayAmount, getSpendingRows, getSummary } from "@/lib/finance-view-model";
-import type { Transaction } from "@/lib/types";
+import { metricSpendingRows, metricSummary } from "@/lib/analytics-metrics";
+import type { DashboardMetrics, Transaction } from "@/lib/types";
 
 const SpendingPieChart = dynamic(() => import("@/components/charts/spending-pie-chart"), {
   ssr: false,
@@ -31,6 +32,8 @@ export function HomeDashboard({
   uploadStatus,
   transactionCount,
   onUpload,
+  metrics,
+  notificationCount,
   setActiveView
 }: {
   displayName: string;
@@ -40,13 +43,15 @@ export function HomeDashboard({
   transactionCount: number;
   onUpload: UploadHandler;
   setActiveView: (view: ActiveView) => void;
+  metrics: DashboardMetrics | null;
+  notificationCount: number;
 }) {
-  const summary = useMemo(() => getSummary(transactions), [transactions]);
+  const summary = useMemo(() => metrics ? metricSummary(metrics) : getSummary(transactions), [metrics, transactions]);
 
   return (
     <>
-      <HomeHeader displayName={displayName} />
-      <TotalBalanceCard balance={summary.balance} />
+      <HomeHeader displayName={displayName} notificationCount={notificationCount} onNotifications={() => setActiveView("notifications")} />
+      <TotalBalanceCard balance={summary.balance} asOf={metrics?.latestDate} />
       <SummaryCards summary={summary} />
       <LatestStatementCard
         latestPeriod={latestPeriod}
@@ -55,20 +60,20 @@ export function HomeDashboard({
         onUpload={onUpload}
         onOpen={() => setActiveView("statements")}
       />
-      <SpendingOverviewCard transactions={transactions} onOpenCategories={() => setActiveView("insights")} />
+      <SpendingOverviewCard transactions={transactions} metrics={metrics} onOpenCategories={() => setActiveView("insights")} />
       <TransactionsShortcut onOpen={() => setActiveView("transactions")} />
     </>
   );
 }
 
-function HomeHeader({ displayName }: { displayName: string }) {
+function HomeHeader({ displayName, notificationCount, onNotifications }: { displayName: string; notificationCount: number; onNotifications: () => void }) {
   return (
     <header className="mb-[18px] flex items-start justify-between gap-3 pt-1">
       <div className="min-w-0">
         <h1 className="text-[clamp(26px,7vw,30px)] font-extrabold leading-tight tracking-[-0.035em] text-[#11152D]">Good morning, {displayName}</h1>
         <p className="mt-1 text-[clamp(16px,4vw,17px)] font-medium leading-tight text-[#64708A]">Here&apos;s your financial overview</p>
       </div>
-      <button aria-label="Notifications" className="relative grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white text-[#11152D] shadow-sm ring-1 ring-[rgba(15,23,42,0.06)]">
+      <button onClick={onNotifications} aria-label={`Notifications, ${notificationCount} unread`} className="relative grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white text-[#11152D] shadow-sm ring-1 ring-[rgba(15,23,42,0.06)]">
         <BellIcon />
         <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-[#6D3EF3] ring-2 ring-white" />
       </button>
@@ -76,7 +81,7 @@ function HomeHeader({ displayName }: { displayName: string }) {
   );
 }
 
-function TotalBalanceCard({ balance }: { balance: number }) {
+function TotalBalanceCard({ balance, asOf }: { balance: number; asOf?: string | null }) {
   const [visible, setVisible] = useState(true);
   return (
     <section className="relative h-[150px] overflow-hidden rounded-[24px] bg-gradient-to-br from-[#4F46E5] via-[#633EF2] to-[#7C3AED] px-[18px] py-[22px] text-white shadow-[0_18px_38px_rgba(99,62,242,0.23)] min-[391px]:h-[158px] min-[391px]:px-6">
@@ -88,7 +93,7 @@ function TotalBalanceCard({ balance }: { balance: number }) {
             <EyeIcon />
           </button>
           <p className="mt-5 whitespace-nowrap text-[clamp(27px,6.9vw,39px)] font-extrabold leading-none tracking-[-0.06em]">{visible ? `QAR ${formatDisplayAmount(balance)}` : "QAR *******"}</p>
-          <p className="mt-4 text-[14px] font-semibold text-white/85">As of July 1, 2026</p>
+          <p className="mt-4 text-[14px] font-semibold text-white/85">As of {asOf ?? "your latest statement"}</p>
         </div>
         <div className="grid h-14 w-14 shrink-0 place-items-center rounded-[17px] bg-white/15 backdrop-blur min-[391px]:h-16 min-[391px]:w-16">
           <TrendIcon />
@@ -177,13 +182,15 @@ function LatestStatementCard({
 
 function SpendingOverviewCard({
   transactions,
+  metrics,
   onOpenCategories
 }: {
   transactions: Transaction[];
   onOpenCategories: () => void;
+  metrics: DashboardMetrics | null;
 }) {
   const [period, setPeriod] = useState<SpendingPeriod>("This Month");
-  const rows = useMemo(() => getSpendingRows(transactions, period), [transactions, period]);
+  const rows = useMemo(() => metrics ? metricSpendingRows(metrics, period).slice(0, 5) : getSpendingRows(transactions, period), [metrics, transactions, period]);
   const total = rows.reduce((sum, row) => sum + row.amount, 0);
 
   return (
@@ -233,7 +240,7 @@ function SpendingOverviewCard({
 
 function TransactionsShortcut({ onOpen }: { onOpen: () => void }) {
   return (
-    <button onClick={onOpen} className="mt-4 flex min-h-[62px] items-center gap-3 rounded-[18px] bg-white px-4 py-3 text-left shadow-[0_10px_26px_rgba(15,23,42,0.045)] ring-1 ring-[rgba(15,23,42,0.06)]">
+    <button onClick={onOpen} className="mt-4 flex min-h-[62px] w-full min-w-0 items-center gap-3 rounded-[18px] bg-white px-4 py-3 text-left shadow-[0_10px_26px_rgba(15,23,42,0.045)] ring-1 ring-[rgba(15,23,42,0.06)]">
       <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-violet-50 text-[#633EF2]"><ReceiptIcon /></div>
       <div className="min-w-0 flex-1">
         <p className="text-[14px] font-extrabold leading-tight tracking-[-0.02em] text-[#111827]">View all transactions</p>

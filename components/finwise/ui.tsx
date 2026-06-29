@@ -1,3 +1,5 @@
+"use client";
+
 import type { ReactNode } from "react";
 import { BellIcon, LogoMark } from "@/components/finwise/icons";
 
@@ -35,7 +37,7 @@ export function AppTopBar() {
         <span className="text-[22px] font-extrabold tracking-[-0.035em] text-[#0F172A]">FinWise</span>
       </div>
       <div className="flex items-center gap-3">
-        <button aria-label="Notifications" className="relative grid h-9 w-9 place-items-center rounded-full bg-white text-[#334155] ring-1 ring-[#E8ECF3]">
+        <button onClick={() => window.dispatchEvent(new CustomEvent("finwise:notifications"))} aria-label="Open notifications" className="relative grid h-9 w-9 place-items-center rounded-full bg-white text-[#334155] ring-1 ring-[#E8ECF3]">
           <BellIcon />
           <span className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-[#6D35F5] ring-2 ring-white" />
         </button>

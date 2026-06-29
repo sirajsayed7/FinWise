@@ -95,6 +95,35 @@ export type TransactionTombstone = {
   deletedAt: string;
   deviceId?: string;
 };
+export type DashboardMetrics = {
+  transactionCount: number;
+  statementCount: number;
+  needsReview: number;
+  totalIncome: number;
+  totalExpenses: number;
+  latestDate: string | null;
+  categoryTotals: Array<{ month: string; category: CategoryName; amount: number }>;
+  dailyExpenses: Array<{ date: string; amount: number }>;
+  monthlyExpenses: Array<{ month: string; amount: number }>;
+  merchantTotals: Array<{ month: string; merchant: string; amount: number; count: number }>;
+};
+
+export type FinancialGoal = {
+  id: string;
+  name: string;
+  targetAmount: number;
+  currentAmount: number;
+  targetDate: string | null;
+  createdAt?: string;
+};
+
+export type FinanceNotification = {
+  id: string;
+  type: "budget" | "recurring" | "unusual" | "sync";
+  severity: "info" | "warning" | "critical";
+  title: string;
+  body: string;
+};
 
 export type DashboardSummary = {
   totalExpenses: number;

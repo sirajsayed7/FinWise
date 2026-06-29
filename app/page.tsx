@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import dynamic from "next/dynamic";
 import type { User } from "@supabase/supabase-js";
 import { toast } from "sonner";
@@ -8,7 +8,12 @@ import { BottomNavigation } from "@/components/finwise/app-shell";
 import { AuthScreen, LoadingScreen } from "@/components/finwise/auth-screen";
 import { HomeDashboard } from "@/components/finwise/home-dashboard";
 import type { ActiveView, PendingImport, PendingTransactionPatch, StatementPeriodInfo } from "@/lib/dashboard-types";
-import { loadFinWiseData, loadMerchantLogoOverrides, saveFinWiseData, saveMerchantLogoOverrides } from "@/lib/finwise-db";
+import {
+  deleteAllFinWiseData, deleteBudget, deleteFinancialGoal, deleteStatementData, loadBudgets, loadDashboardMetrics, loadFinancialGoals, loadFinWiseData,
+  loadMerchantLogoOverrides, loadTransactionPage, saveBudget, saveFinancialGoal,
+  saveFinWiseData, saveMerchantLogoOverrides, type TransactionPage
+} from "@/lib/finwise-db";
+import { buildFinanceNotifications } from "@/lib/analytics-metrics";
 import {
   applyMerchantCorrection, applySavedMerchantRules, dedupe, getLatestPeriodFromTransactions,
   getStoredMerchantRules, getUserDisplayName, mergeMerchantRules, sanitizeTransactions, saveMerchantRule
@@ -22,7 +27,7 @@ import {
 } from "@/lib/local-cache";
 import { cacheMerchantLogoOverrides, mergeLogoOverrides, preloadMerchantLogos } from "@/lib/merchant-logos";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase-client";
-import type { MerchantLogoRecord, MerchantRule, Transaction } from "@/lib/types";
+import type { BudgetRecord, DashboardMetrics, FinancialGoal, MerchantLogoRecord, MerchantRule, Transaction } from "@/lib/types";
 
 function ViewLoading() {
   return <div className="h-40 animate-pulse rounded-[24px] bg-white shadow-sm ring-1 ring-[rgba(15,23,42,0.05)]" />;
@@ -34,6 +39,8 @@ const StatementsPageV2 = dynamic(() => import("@/components/finwise/settings-pag
 const TransactionsPage = dynamic(() => import("@/components/finwise/transactions-page").then((module) => module.TransactionsPage), { ssr: false, loading: ViewLoading });
 const ReviewWorkflowPage = dynamic(() => import("@/components/finwise/transactions-page").then((module) => module.ReviewWorkflowPage), { ssr: false, loading: ViewLoading });
 const UploadPage = dynamic(() => import("@/components/finwise/upload-page").then((module) => module.UploadPage), { ssr: false, loading: ViewLoading });
+const PlanningPage = dynamic(() => import("@/components/finwise/planning-page").then((module) => module.PlanningPage), { ssr: false, loading: ViewLoading });
+const NotificationsPage = dynamic(() => import("@/components/finwise/planning-page").then((module) => module.NotificationsPage), { ssr: false, loading: ViewLoading });
 
 
 
@@ -48,6 +55,14 @@ export default function FinWiseApp() {
   const [syncStatus, setSyncStatus] = useState(isSupabaseConfigured ? "Connect your account" : "Local mode");
   const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
   const [merchantLogoOverrides, setMerchantLogoOverrides] = useState<MerchantLogoRecord[]>([]);
+  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
+  const [budgets, setBudgets] = useState<BudgetRecord[]>([]);
+  const [goals, setGoals] = useState<FinancialGoal[]>([]);
+  const [hasMoreTransactions, setHasMoreTransactions] = useState(false);
+  const [nextTransactionOffset, setNextTransactionOffset] = useState(0);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const prefetchedPageRef = useRef<{ offset: number; page: TransactionPage } | null>(null);
+  const notifications = useMemo(() => metrics ? buildFinanceNotifications(transactions, budgets, metrics) : [], [transactions, budgets, metrics]);
   const [localCacheReady, setLocalCacheReady] = useState(isSupabaseConfigured);
   const userChangedDataRef = useRef(false);
   const forceFullSyncRef = useRef(false);
@@ -98,6 +113,11 @@ export default function FinWiseApp() {
       setCloudLoaded(!session?.user);
       if (!session?.user) {
         setTransactions([]);
+        setMetrics(null);
+        setBudgets([]);
+        setGoals([]);
+        setHasMoreTransactions(false);
+        prefetchedPageRef.current = null;
         setLatestPeriod(null);
         setUploadStatus("No uploads yet");
         setSyncStatus("Signed out");
@@ -118,6 +138,12 @@ export default function FinWiseApp() {
       window.removeEventListener("online", retry);
       document.removeEventListener("visibilitychange", retryWhenVisible);
     };
+  }, []);
+
+  useEffect(() => {
+    const open = () => setActiveView("notifications");
+    window.addEventListener("finwise:notifications", open);
+    return () => window.removeEventListener("finwise:notifications", open);
   }, []);
 
   useEffect(() => {
@@ -156,7 +182,7 @@ export default function FinWiseApp() {
           localRules
         );
         const nextPeriod = reconciled.latestPeriod;
-        const logoOverrides = await loadMerchantLogoOverrides(authUser!.id);
+        const [logoOverrides, cloudBudgets, cloudGoals] = await Promise.all([loadMerchantLogoOverrides(authUser!.id), loadBudgets(authUser!.id), loadFinancialGoals(authUser!.id)]);
         if (cancelled) return;
 
         forceFullSyncRef.current = Boolean(data && !data.normalized);
@@ -164,6 +190,19 @@ export default function FinWiseApp() {
         setTransactions(nextTransactions);
         setLatestPeriod(nextPeriod);
         setMerchantLogoOverrides(logoOverrides);
+        setBudgets(cloudBudgets);
+        setGoals(cloudGoals);
+        setMetrics(data?.metrics ?? null);
+        const pageOffset = Math.max(data?.nextOffset ?? 0, nextTransactions.length);
+        const moreAvailable = Boolean(data?.normalized && (data.metrics.transactionCount > nextTransactions.length || data.hasMore));
+        setNextTransactionOffset(pageOffset);
+        setHasMoreTransactions(moreAvailable);
+        prefetchedPageRef.current = null;
+        if (moreAvailable) {
+          void loadTransactionPage(authUser!.id, pageOffset, 100).then((page) => {
+            if (!cancelled) prefetchedPageRef.current = { offset: pageOffset, page };
+          }).catch(() => undefined);
+        }
         setUploadStatus(nextTransactions.length ? `${nextTransactions.length} transactions` : "No uploads yet");
         window.localStorage.setItem("finwise.merchantRules", JSON.stringify(localRules));
         cacheMerchantLogoOverrides(logoOverrides);
@@ -260,6 +299,7 @@ export default function FinWiseApp() {
       userChangedDataRef.current = false;
       forceFullSyncRef.current = false;
       setSyncStatus("Synced");
+      void loadDashboardMetrics(authUser!.id).then(setMetrics).catch(() => undefined);
     }
 
     return () => window.clearTimeout(timer);
@@ -278,6 +318,12 @@ export default function FinWiseApp() {
     setLatestPeriod(null);
     setPendingImport(null);
     setUploadStatus("No uploads yet");
+    setMetrics(null);
+    setHasMoreTransactions(false);
+    prefetchedPageRef.current = null;
+    if (authUser) void deleteAllFinWiseData(authUser.id).then((ok) => {
+      if (!ok) toast.error("Cloud data could not be cleared", { description: "Your device copy was cleared. Try again when online." });
+    });
     toast.success("Imported data cleared", {
       description: "Your dashboard is ready for a fresh statement.",
       action: previousTransactions.length
@@ -304,6 +350,9 @@ export default function FinWiseApp() {
     const nextLatest = getLatestPeriodFromTransactions(nextTransactions);
     setLatestPeriod(nextLatest);
     setUploadStatus(nextTransactions.length ? `${nextTransactions.length} transactions` : "No uploads yet");
+    if (authUser) void deleteStatementData(authUser.id, statementId).then((ok) => {
+      if (!ok) toast.error("Statement could not be removed from the cloud");
+    });
     toast.success("Statement removed", {
       description: nextTransactions.length ? `${nextTransactions.length} transactions remain.` : "No imported transactions remain.",
       action: {
@@ -514,6 +563,45 @@ export default function FinWiseApp() {
     });
   }, []);
 
+  async function loadMoreTransactions() {
+    if (!authUser || !hasMoreTransactions || isLoadingMore) return;
+    setIsLoadingMore(true);
+    try {
+      const cached = prefetchedPageRef.current?.offset === nextTransactionOffset ? prefetchedPageRef.current.page : null;
+      const page = cached ?? await loadTransactionPage(authUser.id, nextTransactionOffset, 100);
+      prefetchedPageRef.current = null;
+      setTransactions((current) => dedupe([...current, ...page.transactions]));
+      setNextTransactionOffset(page.nextOffset);
+      const more = page.hasMore || Boolean(metrics && page.nextOffset < metrics.transactionCount);
+      setHasMoreTransactions(more);
+      if (more) void loadTransactionPage(authUser.id, page.nextOffset, 100).then((nextPage) => { prefetchedPageRef.current = { offset: page.nextOffset, page: nextPage }; }).catch(() => undefined);
+    } catch {
+      toast.error("Could not load older transactions", { description: "Check your connection and try again." });
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }
+
+  async function upsertBudget(budget: BudgetRecord) {
+    setBudgets((current) => [...current.filter((row) => !(row.category === budget.category && row.period === budget.period)), budget]);
+    if (authUser && !(await saveBudget(authUser.id, budget))) toast.error("Budget could not be synced");
+  }
+
+  async function removeBudget(budget: BudgetRecord) {
+    setBudgets((current) => current.filter((row) => !(row.category === budget.category && row.period === budget.period)));
+    if (authUser) await deleteBudget(authUser.id, budget.category, budget.period);
+  }
+
+  async function upsertGoal(goal: FinancialGoal) {
+    setGoals((current) => [...current.filter((row) => row.id !== goal.id), goal]);
+    if (authUser && !(await saveFinancialGoal(authUser.id, goal))) toast.error("Goal could not be synced");
+  }
+
+  async function removeGoal(goalId: string) {
+    setGoals((current) => current.filter((row) => row.id !== goalId));
+    if (authUser) await deleteFinancialGoal(authUser.id, goalId);
+  }
+
   function updateTransactions(next: Transaction[] | ((current: Transaction[]) => Transaction[])) {
     userChangedDataRef.current = true;
     setTransactions(next);
@@ -529,16 +617,21 @@ export default function FinWiseApp() {
 
   return (
     <main className="min-h-screen bg-[#F8FAFC] text-[#111827]">
-      <div className="mx-auto flex min-h-screen w-full max-w-[440px] flex-col bg-[#FAFBFF] px-4 pb-[calc(108px+env(safe-area-inset-bottom))] pt-[calc(14px+env(safe-area-inset-top))] min-[391px]:px-[18px] sm:my-5 sm:rounded-[34px] sm:border sm:border-white sm:shadow-2xl sm:shadow-slate-300/50">
+      <a href="#main-content" className="sr-only z-50 rounded bg-white p-3 focus:not-sr-only focus:fixed focus:left-3 focus:top-3">Skip to content</a>
+      <div id="main-content" className="mx-auto flex min-h-screen w-full max-w-[440px] flex-col bg-[#FAFBFF] px-4 pb-[calc(108px+env(safe-area-inset-bottom))] pt-[calc(14px+env(safe-area-inset-top))] min-[391px]:px-[18px] sm:my-5 sm:rounded-[34px] sm:border sm:border-white sm:shadow-2xl sm:shadow-slate-300/50">
+        <div key={activeView} className="app-view">
         {activeView === "home" ? (
-          <HomeDashboard displayName={displayName} transactions={transactions} latestPeriod={latestPeriod} uploadStatus={uploadStatus} transactionCount={transactionCount} onUpload={uploadStatement} setActiveView={setActiveView} />
+          <HomeDashboard displayName={displayName} transactions={transactions} metrics={metrics} notificationCount={notifications.length} latestPeriod={latestPeriod} uploadStatus={uploadStatus} transactionCount={metrics?.transactionCount ?? transactionCount} onUpload={uploadStatement} setActiveView={setActiveView} />
         ) : null}
-        {activeView === "transactions" ? <TransactionsPage transactions={transactions} setTransactions={updateTransactions} setActiveView={setActiveView} onClearUploads={clearUploads} /> : null}
+        {activeView === "transactions" ? <TransactionsPage transactions={transactions} metrics={metrics} hasMoreRemote={hasMoreTransactions} isLoadingMore={isLoadingMore} onLoadMore={loadMoreTransactions} setTransactions={updateTransactions} setActiveView={setActiveView} onClearUploads={clearUploads} /> : null}
         {activeView === "upload" ? <UploadPage latestPeriod={latestPeriod} uploadStatus={uploadStatus} onUpload={uploadStatement} onClearUploads={clearUploads} hasUploads={transactionCount > 0} pendingImport={pendingImport} onConfirmImport={confirmPendingImport} onCancelImport={() => setPendingImport(null)} onRemovePendingTransaction={removePendingTransaction} onUpdatePendingTransaction={updatePendingTransaction} /> : null}
-        {activeView === "insights" ? <InsightsPage transactions={transactions} /> : null}
+        {activeView === "insights" ? <InsightsPage transactions={transactions} metrics={metrics} /> : null}
         {activeView === "settings" ? <SettingsPage setActiveView={setActiveView} authEmail={authUser?.email ?? null} syncStatus={syncStatus} onSignOut={signOut} onExportBackup={exportBackup} onRestoreBackup={() => restoreInputRef.current?.click()} /> : null}
         {activeView === "statements" ? <StatementsPageV2 transactions={transactions} latestPeriod={latestPeriod} setActiveView={setActiveView} onClearUploads={clearUploads} onClearStatement={clearStatement} /> : null}
         {activeView === "review" ? <ReviewWorkflowPage transactions={transactions} setTransactions={updateTransactions} setActiveView={setActiveView} /> : null}
+        {activeView === "planning" ? <PlanningPage budgets={budgets} goals={goals} metrics={metrics} setActiveView={setActiveView} onSaveBudget={upsertBudget} onDeleteBudget={removeBudget} onSaveGoal={upsertGoal} onDeleteGoal={removeGoal} /> : null}
+        {activeView === "notifications" ? <NotificationsPage notifications={notifications} setActiveView={setActiveView} /> : null}
+        </div>
         <input ref={restoreInputRef} type="file" accept="application/json,.json" className="hidden" onChange={restoreBackup} />
       </div>
       <BottomNavigation activeView={activeView} setActiveView={setActiveView} />
