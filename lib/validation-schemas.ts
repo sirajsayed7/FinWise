@@ -36,14 +36,14 @@ export const MerchantRuleSchema = z.object({
     .string()
     .min(1, "Pattern is required")
     .max(255, "Pattern is too long"),
-  category: z.enum(categories),
+  category: z.enum(categories as readonly [string, ...string[]]),
   merchant: z.string().optional(),
   subcategory: z.string().optional()
 });
 
 export const TransactionUpdateSchema = z.object({
   id: z.string().uuid(),
-  category: z.enum(categories).optional(),
+  category: z.enum(categories as readonly [string, ...string[]]).optional(),
   merchant: z
     .string()
     .min(1, "Merchant name is required")
@@ -75,7 +75,7 @@ export const TransactionSchema = z.object({
     .max(999_999_999, "Amount exceeds maximum"),
   direction: z.enum(["income", "expense"]),
   currency: z.string().length(3),
-  category: z.enum(categories),
+  category: z.enum(categories as readonly [string, ...string[]]),
   subcategory: z.string(),
   confidence: z
     .number()
@@ -111,7 +111,7 @@ export const StatementRecordSchema = z.object({
 
 export const BudgetRecordSchema = z.object({
   id: z.string().optional(),
-  category: z.enum(categories),
+  category: z.enum(categories as readonly [string, ...string[]]),
   amount: z
     .number()
     .positive("Budget amount must be positive")
