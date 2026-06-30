@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import type { NextRequest } from "next/server";
 import { put } from "@vercel/blob";
 import crypto from "node:crypto";
@@ -6,6 +6,7 @@ import { categorizeUnknownTransactions } from "@/lib/ai-categorization";
 import { getStatementPeriod, parseStatementFile } from "@/lib/parser";
 import { createRateLimiter } from "@/lib/middleware";
 import { validateStatementUpload, createValidationErrorResponse } from "@/lib/validation-schemas";
+import { supabase } from "@/lib/supabase"; // 👈 Ensure this points to your Supabase client initialization
 import type { MerchantRule } from "@/lib/types";
 
 // ============================================================================
@@ -28,7 +29,7 @@ class StatementProcessingError extends Error {
   constructor(
     public code: string,
     public statusCode: number,
-    message: string
+    public message: string
   ) {
     super(message);
     this.name = "StatementProcessingError";
@@ -79,7 +80,6 @@ export async function POST(request: NextRequest) {
     const rules = parseRules(String(formData.get("rules") || "[]"));
 
     // Generate statement metadata
-    let blobUrl: string | null = null;
     const fileBuffer = Buffer.from(await file.arrayBuffer());
 
     // Additional size check after buffering
@@ -95,79 +95,116 @@ export async function POST(request: NextRequest) {
     const statementId = fileHash.slice(0, 32);
     const uploadedAt = new Date().toISOString();
 
-    // Process statement
-    const parseFile = new File([fileBuffer], file.name, {
-      type: file.type || "application/octet-stream"
+    // ------------------------------------------------------------------------
+    // 1. Live Sync Kickoff: Instantly mark the statement as processing
+    // ------------------------------------------------------------------------
+    // ⚠️ DB COLUMN CHECK: Verify your 'statements' table columns match these keys
+    await supabase.from("statements").insert({
+      id: statementId,
+      file_name: file.name,     // Change to fileName if using camelCase in DB
+      status: "processing",
+      uploaded_at: uploadedAt   // Change to uploadedAt if using camelCase in DB
     });
 
-    const parsedStatement = await parseStatementFile(parseFile, bank, rules);
-    const categorized = await categorizeUnknownTransactions(
-      parsedStatement.transactions
-    );
-    const period = getStatementPeriod(categorized);
-
-    // Determine statement status based on parsing confidence
-    const statementStatus =
-      parsedStatement.diagnostics.confidence < 0.75 ? ("review" as const) : ("processed" as const);
-
-    // Calculate summary
-    const summary = categorized.reduce(
-      (current, transaction) => {
-        if (transaction.direction === "income") current.totalIncome += transaction.amount;
-        else current.totalExpenses += transaction.amount;
-        return current;
-      },
-      { totalIncome: 0, totalExpenses: 0 }
-    );
-
-    // Enrich transactions with statement metadata
-    const transactions = categorized.map((transaction) => ({
-      ...transaction,
-      statementId,
-      statementFileName: file.name,
-      statementUploadedAt: uploadedAt,
-      statementPeriodLabel: period.label,
-      statementStatus
-    }));
-
-    // Optional: Store original file in Vercel Blob
-    if (keepOriginal && process.env.BLOB_READ_WRITE_TOKEN) {
+    // ------------------------------------------------------------------------
+    // 2. Background Processing Core
+    // ------------------------------------------------------------------------
+    // This tells Vercel to respond to the phone instantly, keeping the server alive 
+    // in the background to handle parsing and OpenAI without hitting timeouts.
+    after(async () => {
       try {
-        const blob = await put(
-          `statements/${Date.now()}-${file.name}`,
-          file,
-          {
-            access: "public"
-          }
-        );
-        blobUrl = blob.url;
-      } catch (error) {
-        // Log but don't fail the upload if blob storage fails
-        console.error("Failed to store file in Vercel Blob:", error);
-      }
-    }
+        let blobUrl: string | null = null;
 
+        const parseFile = new File([fileBuffer], file.name, {
+          type: file.type || "application/octet-stream"
+        });
+
+        // Parse statement text elements
+        const parsedStatement = await parseStatementFile(parseFile, bank, rules);
+        
+        // Dynamic status broadcast to update UI loading states across devices live
+        await supabase.from("statements").update({ status: "categorizing" }).eq("id", statementId);
+
+        // Run unmapped rows through OpenAI
+        const categorized = await categorizeUnknownTransactions(
+          parsedStatement.transactions
+        );
+        const period = getStatementPeriod(categorized);
+
+        // Determine statement status based on parsing confidence
+        const statementStatus =
+          parsedStatement.diagnostics.confidence < 0.75 ? "review" : "processed";
+
+        // Calculate statement summary values
+        const summary = categorized.reduce(
+          (current, transaction) => {
+            if (transaction.direction === "income") current.totalIncome += transaction.amount;
+            else current.totalExpenses += transaction.amount;
+            return current;
+          },
+          { totalIncome: 0, totalExpenses: 0 }
+        );
+
+        // Optional: Store original file in Vercel Blob
+        if (keepOriginal && process.env.BLOB_READ_WRITE_TOKEN) {
+          try {
+            const blob = await put(
+              `statements/${Date.now()}-${file.name}`,
+              file,
+              {
+                access: "public"
+              }
+            );
+            blobUrl = blob.url;
+          } catch (error) {
+            console.error("Failed to store file in Vercel Blob:", error);
+          }
+        }
+
+        // ⚠️ DB COLUMN CHECK: Verify your 'transactions' table columns match these keys
+        await supabase.from("transactions").insert(
+          categorized.map((transaction) => ({
+            ...transaction,
+            statement_id: statementId,                 // Change keys to camelCase if 
+            statement_file_name: file.name,            // your Postgres table rules
+            statement_uploaded_at: uploadedAt,          // are configured that way.
+            statement_period_label: period.label,
+            statement_status: statementStatus
+          }))
+        );
+
+        // Mark the entire background pipeline job as fully finished!
+        // ⚠️ DB COLUMN CHECK: Verify your 'statements' table update columns match these keys
+        await supabase.from("statements").update({
+          status: statementStatus,
+          blob_url: blobUrl,                           // Change to blobUrl if camelCase
+          transaction_count: categorized.length,       // Change to transactionCount if camelCase
+          total_income: summary.totalIncome,           // Change to totalIncome if camelCase
+          total_expenses: summary.totalExpenses,         // Change to totalExpenses if camelCase
+          period: period,
+          diagnostics: parsedStatement.diagnostics
+        }).eq("id", statementId);
+
+      } catch (processingError) {
+        console.error("Background transaction tracking execution failed:", processingError);
+        // Switch statement row state to 'failed' so frontend layouts show an error message
+        await supabase.from("statements").update({ status: "failed" }).eq("id", statementId);
+      }
+    });
+
+    // ------------------------------------------------------------------------
+    // 3. Immediate PWA/Mobile Return Response
+    // ------------------------------------------------------------------------
+    // Handshake returns an HTTP 202 (Accepted) meaning processing has safely begun.
     return NextResponse.json(
       {
-        statement: {
-          id: statementId,
-          fileName: file.name,
-          bank: parsedStatement.profile.bank,
-          currency: parsedStatement.profile.currency,
-          fileHash,
-          blobUrl: keepOriginal ? blobUrl : null,
-          status: statementStatus,
-          uploadedAt,
-          transactionCount: transactions.length,
-          totalIncome: summary.totalIncome,
-          totalExpenses: summary.totalExpenses,
-          period,
-          diagnostics: parsedStatement.diagnostics
-        },
-        transactions
+        success: true,
+        message: "File received successfully. Syncing dashboards in background.",
+        statementId
       },
-      { status: 200 }
+      { status: 202 }
     );
+
   } catch (error) {
     return handleStatementProcessingError(error);
   }
@@ -178,7 +215,6 @@ export async function POST(request: NextRequest) {
 // ============================================================================
 
 function handleStatementProcessingError(error: unknown) {
-  // Handle custom StatementProcessingError
   if (error instanceof StatementProcessingError) {
     return NextResponse.json(
       {
@@ -189,7 +225,6 @@ function handleStatementProcessingError(error: unknown) {
     );
   }
 
-  // Handle validation errors
   if (error instanceof Error && error.name === "ZodError") {
     return NextResponse.json(
       {
@@ -200,13 +235,11 @@ function handleStatementProcessingError(error: unknown) {
     );
   }
 
-  // Handle generic errors
   const errorMessage =
     error instanceof Error
       ? error.message
       : "An unexpected error occurred while processing the statement.";
 
-  // Log to Sentry for monitoring
   if (typeof window === "undefined") {
     console.error("Statement processing error:", error);
   }
