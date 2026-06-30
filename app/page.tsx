@@ -30,7 +30,7 @@ import { getSupabase, isSupabaseConfigured } from "@/lib/supabase-client";
 import type { BudgetRecord, DashboardMetrics, FinancialGoal, MerchantLogoRecord, MerchantRule, Transaction } from "@/lib/types";
 
 function ViewLoading() {
-  return <div className="h-40 animate-pulse rounded-[24px] bg-white shadow-sm ring-1 ring-[rgba(15,23,42,0.05)]" />;
+  return <div className="h-40 animate-pulse rounded-[24px] bg-[var(--bg-surface)] shadow-sm ring-1 ring-[rgba(15,23,42,0.05)]" />;
 }
 
 const InsightsPage = dynamic(() => import("@/components/finwise/insights-page").then((module) => module.InsightsPage), { ssr: false, loading: ViewLoading });
@@ -622,8 +622,8 @@ export default function FinWiseApp() {
   }
 
   return (
-    <main className="min-h-screen bg-[#F8FAFC] text-[#111827]">
-      <a href="#main-content" className="sr-only z-50 rounded bg-white p-3 focus:not-sr-only focus:fixed focus:left-3 focus:top-3">Skip to content</a>
+    <main className="min-h-screen bg-[var(--bg-elevated)] text-[var(--text-primary)]">
+      <a href="#main-content" className="sr-only z-50 rounded bg-[var(--bg-surface)] p-3 focus:not-sr-only focus:fixed focus:left-3 focus:top-3">Skip to content</a>
       <div id="main-content" className="mx-auto flex min-h-screen w-full max-w-[440px] flex-col bg-[#FAFBFF] px-4 pb-[calc(108px+env(safe-area-inset-bottom))] pt-[calc(14px+env(safe-area-inset-top))] min-[391px]:px-[18px] sm:my-5 sm:rounded-[34px] sm:border sm:border-white sm:shadow-2xl sm:shadow-slate-300/50">
         <div key={activeView} className="app-view">
         {activeView === "home" ? (

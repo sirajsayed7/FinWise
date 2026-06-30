@@ -3,41 +3,41 @@ import type { SpendingPeriod } from "@/lib/dashboard-types";
 export const periods: SpendingPeriod[] = ["This Month", "Last Month", "Year"];
 
 export const categoryColors: Record<string, string> = {
-  Groceries: "#22C55E",
-  "Ordering Out": "#F97316",
+  Groceries:             "#10B981",
+  "Ordering Out":        "#F97316",
   "Restaurants & Cafes": "#FB923C",
-  Transport: "#06B6D4",
-  Fuel: "#F59E0B",
-  Shopping: "#3B82F6",
-  Malls: "#7C3AED",
-  Bills: "#8B5CF6",
-  Subscriptions: "#D946EF",
-  Rent: "#64748B",
-  Health: "#14B8A6",
-  Entertainment: "#0EA5E9",
-  "Cash Withdrawal": "#94A3B8",
-  "Bank Transfer": "#64748B",
-  "Salary / Income": "#10B981",
-  Other: "#CBD5E1"
+  Transport:             "#06B6D4",
+  Fuel:                  "#F59E0B",
+  Shopping:              "#3B82F6",
+  Malls:                 "#7C3AED",
+  Bills:                 "#8B5CF6",
+  Subscriptions:         "#D946EF",
+  Rent:                  "#64748B",
+  Health:                "#14B8A6",
+  Entertainment:         "#38BDF8",
+  "Cash Withdrawal":     "#94A3B8",
+  "Bank Transfer":       "#64748B",
+  "Salary / Income":     "#34D399",
+  Other:                 "#475569"
 };
 
 export const categoryAvatarStyles: Record<string, string> = {
-  Groceries: "bg-emerald-50 text-emerald-600",
-  "Ordering Out": "bg-orange-500 text-white",
-  "Restaurants & Cafes": "bg-orange-50 text-orange-600",
-  Transport: "bg-cyan-50 text-cyan-600",
-  Fuel: "bg-amber-50 text-amber-600",
-  Shopping: "bg-blue-50 text-blue-600",
-  Malls: "bg-violet-50 text-violet-600",
-  Bills: "bg-purple-50 text-purple-600",
-  Subscriptions: "bg-fuchsia-50 text-fuchsia-600",
-  Rent: "bg-slate-100 text-slate-600",
-  Health: "bg-teal-50 text-teal-600",
-  Entertainment: "bg-sky-50 text-sky-600",
-  "Cash Withdrawal": "bg-slate-100 text-slate-600",
-  "Bank Transfer": "bg-slate-100 text-slate-600",
-  "Salary / Income": "bg-emerald-50 text-emerald-600",
-  Other: "bg-slate-100 text-slate-600"
+  Groceries:             "bg-emerald-500/20 text-emerald-400",
+  "Ordering Out":        "bg-orange-500/20 text-orange-400",
+  "Restaurants & Cafes": "bg-orange-500/20 text-orange-400",
+  Transport:             "bg-cyan-500/20 text-cyan-400",
+  Fuel:                  "bg-amber-500/20 text-amber-400",
+  Shopping:              "bg-blue-500/20 text-blue-400",
+  Malls:                 "bg-violet-500/20 text-violet-400",
+  Bills:                 "bg-purple-500/20 text-purple-400",
+  Subscriptions:         "bg-fuchsia-500/20 text-fuchsia-400",
+  Rent:                  "bg-slate-600/40 text-slate-300",
+  Health:                "bg-teal-500/20 text-teal-400",
+  Entertainment:         "bg-sky-500/20 text-sky-400",
+  "Cash Withdrawal":     "bg-slate-600/40 text-slate-300",
+  "Bank Transfer":       "bg-slate-600/40 text-slate-300",
+  "Salary / Income":     "bg-emerald-500/20 text-emerald-400",
+  Other:                 "bg-slate-600/40 text-slate-300"
 };
 
 export const merchantLogoDomains = [

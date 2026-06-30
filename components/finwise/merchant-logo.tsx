@@ -40,7 +40,7 @@ export const MerchantLogo = memo(function MerchantLogo({
       <img
         src={logoUrl}
         alt=""
-        className={`absolute inset-0 h-full w-full rounded-full bg-white object-cover transition-opacity duration-200 ${loaded ? "opacity-100" : "opacity-0"}`}
+        className={`absolute inset-0 h-full w-full rounded-full bg-[var(--bg-surface)] object-cover transition-opacity duration-200 ${loaded ? "opacity-100" : "opacity-0"}`}
         loading="lazy"
         referrerPolicy="no-referrer"
         onLoad={() => setLoaded(true)}

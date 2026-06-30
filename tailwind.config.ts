@@ -1,20 +1,28 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
-  darkMode: "class",
   content: ["./app/**/*.{js,ts,jsx,tsx,mdx}", "./components/**/*.{js,ts,jsx,tsx,mdx}", "./lib/**/*.{js,ts,jsx,tsx,mdx}"],
   theme: {
     extend: {
       colors: {
-        ink: "#17201c",
-        mist: "#eef5f0",
-        forest: "#1d5c45",
-        mint: "#6fbf9a",
-        lime: "#d8f3a0",
-        coral: "#f26f5e"
+        "fw-base":     "var(--bg-base)",
+        "fw-surface":  "var(--bg-surface)",
+        "fw-elevated": "var(--bg-elevated)",
+        "fw-overlay":  "var(--bg-overlay)",
+        "fw-accent":   "var(--accent)",
+        "fw-accent-dim":"var(--accent-dim)",
+        "fw-text":     "var(--text-primary)",
+        "fw-muted":    "var(--text-secondary)",
+        "fw-faint":    "var(--text-muted)",
+        "fw-success":  "var(--success)",
+        "fw-danger":   "var(--danger)",
+        "fw-warning":  "var(--warning)",
+        "fw-border":   "var(--border)"
       },
       boxShadow: {
-        soft: "0 18px 50px rgba(23, 32, 28, 0.10)"
+        "fw-card":   "var(--shadow-card)",
+        "fw-hero":   "var(--shadow-hero)",
+        "fw-accent": "var(--shadow-accent)"
       }
     }
   },

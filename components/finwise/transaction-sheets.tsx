@@ -47,25 +47,25 @@ export function CategoryCorrectionSheet({
             </Dialog.Overlay>
             <Dialog.Content asChild>
               <motion.section
-                className="fixed inset-x-0 bottom-0 z-30 mx-auto w-full max-w-[430px] rounded-t-[28px] bg-white p-5 pb-[calc(18px+env(safe-area-inset-bottom))] shadow-2xl outline-none"
+                className="fixed inset-x-0 bottom-0 z-30 mx-auto w-full max-w-[430px] rounded-t-[28px] replace_bg pb-[calc(18px+env(safe-area-inset-bottom))] shadow-2xl outline-none"
                 initial={{ y: 36, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: 36, opacity: 0 }}
                 transition={{ type: "spring", stiffness: 360, damping: 34 }}
               >
                 <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-slate-200" />
-                <Dialog.Title className="text-[20px] font-extrabold tracking-[-0.03em] text-[#0F172A]">Correct category</Dialog.Title>
-                <Dialog.Description className="mt-1 text-[13px] font-medium text-[#64748B]">{transaction.merchant}</Dialog.Description>
+                <Dialog.Title className="text-[20px] font-extrabold tracking-[-0.03em] text-[var(--text-primary)]">Correct category</Dialog.Title>
+                <Dialog.Description className="mt-1 text-[13px] font-medium text-[var(--text-secondary)]">{transaction.merchant}</Dialog.Description>
                 <button
                   type="button"
                   onClick={() => setApplyAllMatching((current) => !current)}
                   className={cn(
                     "mt-3 flex min-h-[44px] w-full items-center justify-between gap-3 rounded-[16px] px-3 text-left text-[12px] font-extrabold ring-1 transition",
-                    applyAllMatching ? "bg-violet-50 text-[#5B21B6] ring-violet-100" : "bg-[#F8FAFC] text-[#64748B] ring-[#E2E8F0]"
+                    applyAllMatching ? "bg-[var(--accent-soft)] text-[var(--text-accent)] ring-violet-100" : "bg-[var(--bg-elevated)] text-[var(--text-secondary)] ring-[var(--border)]"
                   )}
                 >
                   <span>Apply to all matching merchants</span>
-                  <span className="rounded-full bg-white px-2 py-1 text-[11px] text-[#334155] ring-1 ring-[#E2E8F0]">{applyAllMatching ? `${similarCount} rows` : "1 row"}</span>
+                  <span className="rounded-full bg-[var(--bg-surface)] px-2 py-1 text-[11px] text-[var(--text-primary)] ring-1 ring-[var(--border)]">{applyAllMatching ? `${similarCount} rows` : "1 row"}</span>
                 </button>
                 <div className="mt-4 grid max-h-[320px] grid-cols-2 gap-2 overflow-y-auto pr-1">
                   {categories.map((category) => (
@@ -75,15 +75,15 @@ export function CategoryCorrectionSheet({
                       className={cn(
                         "min-h-10 rounded-[14px] px-3 text-[12px] font-extrabold transition active:scale-[0.98]",
                         category === transaction.category
-                          ? "bg-[#6D35F5] text-white shadow-lg shadow-[#6D35F5]/20"
-                          : "bg-[#F8FAFC] text-[#334155] ring-1 ring-[#E2E8F0]"
+                          ? "bg-[var(--accent)] text-white shadow-lg shadow-[var(--accent-glow)]"
+                          : "bg-[var(--bg-elevated)] text-[var(--text-primary)] ring-1 ring-[var(--border)]"
                       )}
                     >
                       {category}
                     </button>
                   ))}
                 </div>
-                <p className="mt-4 rounded-[14px] bg-emerald-50 p-3 text-[12px] font-semibold leading-snug text-emerald-700">Saving a correction also saves a merchant rule, so future uploads classify this merchant automatically.</p>
+                <p className="mt-4 rounded-[14px] bg-[var(--success-soft)] p-3 text-[12px] font-semibold leading-snug text-[var(--success)]">Saving a correction also saves a merchant rule, so future uploads classify this merchant automatically.</p>
               </motion.section>
             </Dialog.Content>
           </Dialog.Portal>
@@ -114,19 +114,19 @@ export function BottomSheet({
             </Dialog.Overlay>
             <Dialog.Content asChild>
               <motion.section
-                className="fixed inset-x-0 bottom-0 z-30 mx-auto max-h-[84vh] w-full max-w-[430px] overflow-hidden rounded-t-[28px] bg-white p-5 pb-[calc(18px+env(safe-area-inset-bottom))] shadow-2xl outline-none"
+                className="fixed inset-x-0 bottom-0 z-30 mx-auto max-h-[84vh] w-full max-w-[430px] overflow-hidden rounded-t-[28px] replace_bg pb-[calc(18px+env(safe-area-inset-bottom))] shadow-2xl outline-none"
                 initial={{ y: 36, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: 36, opacity: 0 }}
                 transition={{ type: "spring", stiffness: 360, damping: 34 }}
               >
                 <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-slate-200" />
-                <Dialog.Title className="text-[20px] font-extrabold tracking-[-0.03em] text-[#0F172A]">{title}</Dialog.Title>
+                <Dialog.Title className="text-[20px] font-extrabold tracking-[-0.03em] text-[var(--text-primary)]">{title}</Dialog.Title>
                 <div className="mt-4 max-h-[58vh] overflow-y-auto pr-1">
                   <SheetContent title={title} transactions={transactions} emptyMessage={emptyMessage} />
                 </div>
                 <Dialog.Close asChild>
-                  <button className="mt-5 h-12 w-full rounded-[16px] bg-[#6D35F5] text-[15px] font-extrabold text-white shadow-lg shadow-[#6D35F5]/20 transition active:scale-[0.99]">Done</button>
+                  <button className="mt-5 h-12 w-full rounded-[16px] bg-[var(--accent)] text-[15px] font-extrabold text-white shadow-lg shadow-[var(--accent-glow)] transition active:scale-[0.99]">Done</button>
                 </Dialog.Close>
               </motion.section>
             </Dialog.Content>
@@ -148,13 +148,13 @@ function SheetContent({ title, transactions, emptyMessage }: { title: string; tr
   const orderingOut = categoryRows.find((row) => row.label === "Ordering Out" || row.label === "Dining Out");
 
   if (!transactions.length) {
-    return <div className="rounded-[18px] bg-[#F8FAFC] p-4 text-[13px] font-semibold leading-relaxed text-[#64748B]">{emptyMessage ?? "Upload a statement first. This panel will then show real merchant, category, filter, and recommendation data from your transactions."}</div>;
+    return <div className="rounded-[18px] bg-[var(--bg-elevated)] p-4 text-[13px] font-semibold leading-relaxed text-[var(--text-secondary)]">{emptyMessage ?? "Upload a statement first. This panel will then show real merchant, category, filter, and recommendation data from your transactions."}</div>;
   }
   if (title === "All categories") {
     return <div className="space-y-2.5">{categoryRows.map((row) => <CategorySheetRow key={row.label} row={row} />)}</div>;
   }
   if (title === "Merchant insights") {
-    return <div className="divide-y divide-[#EEF2F7]">{merchants.slice(0, 12).map((row) => <MerchantSheetRow key={row.merchant} row={row} />)}</div>;
+    return <div className="divide-y ring-[var(--border)]">{merchants.slice(0, 12).map((row) => <MerchantSheetRow key={row.merchant} row={row} />)}</div>;
   }
   if (selectedCategory) {
     const rows = transactions.filter((row) => normalizeCategoryLabel(row.category) === selectedCategory.label && row.direction === "expense").slice(0, 8);
@@ -164,7 +164,7 @@ function SheetContent({ title, transactions, emptyMessage }: { title: string; tr
           <MiniMetric label="Spent" value={`QAR ${formatAmount(selectedCategory.amount)}`} tone="red" />
           <MiniMetric label="Share" value={`${selectedCategory.percent}%`} />
         </div>
-        <div className="mt-3 divide-y divide-[#EEF2F7]">{rows.map((row) => <CompactTransactionRow key={row.id} row={row} />)}</div>
+        <div className="mt-3 divide-y ring-[var(--border)]">{rows.map((row) => <CompactTransactionRow key={row.id} row={row} />)}</div>
       </div>
     );
   }
@@ -174,14 +174,14 @@ function SheetContent({ title, transactions, emptyMessage }: { title: string; tr
     const total = rows.reduce((sum, row) => sum + row.amount, 0);
     return (
       <div>
-        <div className="flex items-center gap-3 rounded-[18px] bg-[#F8FAFC] p-3">
-          <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full bg-violet-50 text-[16px] font-extrabold text-[#6D35F5]"><MerchantLogo merchant={merchantName} fallback={merchantName.slice(0, 1)} /></span>
+        <div className="flex items-center gap-3 rounded-[18px] bg-[var(--bg-elevated)] p-3">
+          <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full bg-[var(--accent-soft)] text-[16px] font-extrabold text-[var(--accent)]"><MerchantLogo merchant={merchantName} fallback={merchantName.slice(0, 1)} /></span>
           <div className="min-w-0">
-            <p className="truncate text-[15px] font-extrabold text-[#0F172A]">{merchantName}</p>
-            <p className="text-[13px] font-semibold text-[#64748B]">QAR {formatAmount(total)} across {rows.length} transactions</p>
+            <p className="truncate text-[15px] font-extrabold text-[var(--text-primary)]">{merchantName}</p>
+            <p className="text-[13px] font-semibold text-[var(--text-secondary)]">QAR {formatAmount(total)} across {rows.length} transactions</p>
           </div>
         </div>
-        <div className="mt-3 divide-y divide-[#EEF2F7]">{rows.map((row) => <CompactTransactionRow key={row.id} row={row} />)}</div>
+        <div className="mt-3 divide-y ring-[var(--border)]">{rows.map((row) => <CompactTransactionRow key={row.id} row={row} />)}</div>
       </div>
     );
   }
@@ -189,10 +189,10 @@ function SheetContent({ title, transactions, emptyMessage }: { title: string; tr
     const flexibleSpend = (orderingOut?.amount ?? 0) + (categoryRows.find((row) => row.label === "Shopping")?.amount ?? 0) + (categoryRows.find((row) => row.label === "Subscriptions")?.amount ?? 0);
     const saving = Math.max(0, flexibleSpend * 0.12);
     return (
-      <div className="rounded-[20px] bg-emerald-50 p-4 ring-1 ring-emerald-100">
-        <p className="text-[13px] font-semibold text-emerald-700">Estimated monthly opportunity</p>
-        <p className="mt-1 text-[30px] font-extrabold tracking-[-0.04em] text-emerald-600">QAR {formatAmount(saving)}</p>
-        <p className="mt-2 text-[13px] font-medium leading-relaxed text-[#475569]">Based on ordering out, shopping, and subscriptions. Reduce the highest flexible categories by 10-15% to unlock this saving.</p>
+      <div className="rounded-[20px] bg-[var(--success-soft)] p-4 ring-1 ring-emerald-100">
+        <p className="text-[13px] font-semibold text-[var(--success)]">Estimated monthly opportunity</p>
+        <p className="mt-1 text-[30px] font-extrabold tracking-[-0.04em] text-[var(--success)]">QAR {formatAmount(saving)}</p>
+        <p className="mt-2 text-[13px] font-medium leading-relaxed text-[var(--text-secondary)]">Based on ordering out, shopping, and subscriptions. Reduce the highest flexible categories by 10-15% to unlock this saving.</p>
       </div>
     );
   }
@@ -203,7 +203,7 @@ function SheetContent({ title, transactions, emptyMessage }: { title: string; tr
       <div className="space-y-3">
         <MiniMetric label="Current grocery spend" value={`QAR ${formatAmount(current)}`} />
         <MiniMetric label="Suggested monthly budget" value={`QAR ${formatAmount(suggested)}`} tone="green" />
-        <p className="rounded-[16px] bg-[#F8FAFC] p-3 text-[13px] font-medium leading-relaxed text-[#64748B]">Budget saving is calculated from your imported grocery transactions. Manual editable budgets can be added next as persistent settings.</p>
+        <p className="rounded-[16px] bg-[var(--bg-elevated)] p-3 text-[13px] font-medium leading-relaxed text-[var(--text-secondary)]">Budget saving is calculated from your imported grocery transactions. Manual editable budgets can be added next as persistent settings.</p>
       </div>
     );
   }
@@ -221,7 +221,7 @@ function SheetContent({ title, transactions, emptyMessage }: { title: string; tr
       <div className="space-y-3">
         <MiniMetric label="Top category" value={top ? top.label : "None"} />
         <MiniMetric label="Needs review" value={lowConfidence.toString()} tone={lowConfidence ? "red" : "green"} />
-        <p className="rounded-[16px] bg-violet-50 p-3 text-[13px] font-medium leading-relaxed text-[#5B21B6]">The categorizer uses saved merchant rules first, default rules second, then fallback inference. Correcting a category saves a merchant rule for future uploads.</p>
+        <p className="rounded-[16px] bg-[var(--accent-soft)] p-3 text-[13px] font-medium leading-relaxed text-[var(--text-accent)]">The categorizer uses saved merchant rules first, default rules second, then fallback inference. Correcting a category saves a merchant rule for future uploads.</p>
       </div>
     );
   }
@@ -231,7 +231,7 @@ function SheetContent({ title, transactions, emptyMessage }: { title: string; tr
         <FieldPreview label="Transactions" value={transactions.length.toLocaleString("en-US")} />
         <FieldPreview label="Date range" value={getDateRange(transactions)} />
         <FieldPreview label="Total spent" value={`QAR ${formatAmount(summary.expenses)}`} />
-        <p className="rounded-[16px] bg-[#F8FAFC] p-3 text-[13px] font-medium leading-relaxed text-[#64748B]">Current controls are connected to the imported dataset. Persistent saved filter presets can be added once account-level storage is introduced.</p>
+        <p className="rounded-[16px] bg-[var(--bg-elevated)] p-3 text-[13px] font-medium leading-relaxed text-[var(--text-secondary)]">Current controls are connected to the imported dataset. Persistent saved filter presets can be added once account-level storage is introduced.</p>
       </div>
     );
   }
@@ -246,13 +246,13 @@ function SheetContent({ title, transactions, emptyMessage }: { title: string; tr
 
 function CategorySheetRow({ row }: { row: SpendingRow }) {
   return (
-    <div className="grid min-h-[42px] grid-cols-[minmax(0,1fr)_90px_44px] items-center gap-2 rounded-[14px] bg-[#F8FAFC] px-3">
+    <div className="grid min-h-[42px] grid-cols-[minmax(0,1fr)_90px_44px] items-center gap-2 rounded-[14px] bg-[var(--bg-elevated)] px-3">
       <div className="flex min-w-0 items-center gap-2">
         <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: row.color }} />
-        <span className="truncate text-[13px] font-bold text-[#0F172A]">{row.label}</span>
+        <span className="truncate text-[13px] font-bold text-[var(--text-primary)]">{row.label}</span>
       </div>
-      <span className="justify-self-end whitespace-nowrap text-[12.5px] font-semibold text-[#334155]">QAR {formatAmount(row.amount)}</span>
-      <span className="justify-self-end text-[12.5px] font-bold text-[#64748B]">{row.percent}%</span>
+      <span className="justify-self-end whitespace-nowrap text-[12.5px] font-semibold text-[var(--text-primary)]">QAR {formatAmount(row.amount)}</span>
+      <span className="justify-self-end text-[12.5px] font-bold text-[var(--text-secondary)]">{row.percent}%</span>
     </div>
   );
 }
@@ -260,14 +260,14 @@ function CategorySheetRow({ row }: { row: SpendingRow }) {
 function MerchantSheetRow({ row }: { row: { merchant: string; amount: number; count: number; change?: string; up?: boolean; color?: string } }) {
   return (
     <div className="flex items-center gap-3 py-2.5">
-      <span className={`grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full text-[14px] font-extrabold ${row.color ?? "bg-violet-50 text-violet-600"}`}><MerchantLogo merchant={row.merchant} fallback={row.merchant.slice(0, 1)} /></span>
+      <span className={`grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full text-[14px] font-extrabold ${row.color ?? "bg-[var(--accent-soft)] text-violet-600"}`}><MerchantLogo merchant={row.merchant} fallback={row.merchant.slice(0, 1)} /></span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[13.5px] font-extrabold text-[#0F172A]">{row.merchant}</p>
-        <p className="text-[12px] font-medium text-[#64748B]">{row.count} transactions</p>
+        <p className="truncate text-[13.5px] font-extrabold text-[var(--text-primary)]">{row.merchant}</p>
+        <p className="text-[12px] font-medium text-[var(--text-secondary)]">{row.count} transactions</p>
       </div>
       <div className="text-right">
-        <p className="whitespace-nowrap text-[12.5px] font-bold text-[#334155]">QAR {formatAmount(row.amount)}</p>
-        {row.change ? <p className={row.up ? "text-[12px] font-bold text-red-500" : "text-[12px] font-bold text-emerald-500"}>{row.up ? "Up" : "Down"} {row.change.replace("+", "").replace("-", "")}</p> : null}
+        <p className="whitespace-nowrap text-[12.5px] font-bold text-[var(--text-primary)]">QAR {formatAmount(row.amount)}</p>
+        {row.change ? <p className={row.up ? "text-[12px] font-bold text-[var(--danger)]" : "text-[12px] font-bold text-[var(--success)]"}>{row.up ? "Up" : "Down"} {row.change.replace("+", "").replace("-", "")}</p> : null}
       </div>
     </div>
   );
@@ -278,10 +278,10 @@ function CompactTransactionRow({ row }: { row: Transaction }) {
     <div className="flex items-center gap-3 py-2.5">
       <span className={`grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full text-[13px] font-extrabold ${categoryAvatarStyles[row.category] ?? categoryAvatarStyles.Other}`}><MerchantLogo merchant={row.merchant} fallback={row.merchant.slice(0, 1)} /></span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[13px] font-bold text-[#0F172A]">{row.merchant}</p>
-        <p className="text-[11.5px] font-medium text-[#64748B]">{row.date} - {row.category}</p>
+        <p className="truncate text-[13px] font-bold text-[var(--text-primary)]">{row.merchant}</p>
+        <p className="text-[11.5px] font-medium text-[var(--text-secondary)]">{row.date} - {row.category}</p>
       </div>
-      <p className={row.direction === "income" ? "whitespace-nowrap text-[12.5px] font-extrabold text-emerald-500" : "whitespace-nowrap text-[12.5px] font-extrabold text-red-500"}>{row.direction === "income" ? "+" : "-"}QAR {formatAmount(row.amount)}</p>
+      <p className={row.direction === "income" ? "whitespace-nowrap text-[12.5px] font-extrabold text-[var(--success)]" : "whitespace-nowrap text-[12.5px] font-extrabold text-[var(--danger)]"}>{row.direction === "income" ? "+" : "-"}QAR {formatAmount(row.amount)}</p>
     </div>
   );
 }
@@ -291,7 +291,7 @@ function RecommendationDetail({ amount, saving, text }: { amount: number; saving
     <div className="space-y-3">
       <MiniMetric label="Current spend" value={`QAR ${formatAmount(amount)}`} />
       <MiniMetric label="Potential saving" value={`QAR ${formatAmount(Math.max(0, saving))}`} tone="green" />
-      <p className="rounded-[16px] bg-[#F8FAFC] p-3 text-[13px] font-medium leading-relaxed text-[#64748B]">{text}</p>
+      <p className="rounded-[16px] bg-[var(--bg-elevated)] p-3 text-[13px] font-medium leading-relaxed text-[var(--text-secondary)]">{text}</p>
     </div>
   );
 }

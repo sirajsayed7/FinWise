@@ -2,59 +2,88 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Dark-only design tokens ─────────────────────────────────────────────── */
 :root {
-  color-scheme: light;
-  background: #f8fafc;
-  color: #111827;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    background: #0f172a;
-    color: #e2e8f0;
-  }
-}
-
-html.dark {
   color-scheme: dark;
-  background: #0f172a;
+
+  /* Backgrounds */
+  --bg-base:       #0D0F1C;   /* deepest background — page bg */
+  --bg-surface:    #141728;   /* cards, panels */
+  --bg-elevated:   #1C1F35;   /* inputs, inner cards */
+  --bg-overlay:    #222541;   /* hover states, chip bg */
+
+  /* Brand / accent */
+  --accent:        #7C3AED;   /* primary violet */
+  --accent-dim:    #6D28D9;   /* pressed/hover */
+  --accent-glow:   rgba(124,58,237,0.28);
+  --accent-soft:   rgba(124,58,237,0.15);
+  --accent-border: rgba(124,58,237,0.35);
+
+  /* Gradients (used as inline style or bg-gradient) */
+  --grad-hero:     linear-gradient(135deg, #4C1D95 0%, #6D28D9 45%, #7C3AED 100%);
+  --grad-card-teal:   linear-gradient(135deg, #064E3B 0%, #065F46 50%, #10B981 100%);
+  --grad-card-orange: linear-gradient(135deg, #78350F 0%, #92400E 50%, #F59E0B 100%);
+  --grad-card-blue:   linear-gradient(135deg, #1E3A5F 0%, #1D4ED8 60%, #3B82F6 100%);
+
+  /* Text */
+  --text-primary:  #F1F5F9;
+  --text-secondary:#94A3B8;
+  --text-muted:    #64748B;
+  --text-accent:   #A78BFA;   /* violet tinted labels */
+
+  /* Status */
+  --success:       #10B981;
+  --success-soft:  rgba(16,185,129,0.15);
+  --danger:        #F43F5E;
+  --danger-soft:   rgba(244,63,94,0.15);
+  --warning:       #F59E0B;
+  --warning-soft:  rgba(245,158,11,0.15);
+
+  /* Borders */
+  --border:        rgba(255,255,255,0.07);
+  --border-strong: rgba(255,255,255,0.13);
+  --border-accent: rgba(124,58,237,0.4);
+
+  /* Shadows */
+  --shadow-card:   0 10px 30px rgba(0,0,0,0.45);
+  --shadow-hero:   0 20px 50px rgba(109,40,217,0.35);
+  --shadow-accent: 0 8px 24px rgba(124,58,237,0.4);
+
+  /* Category accent palette (matched to reference image) */
+  --cat-grocery:  #10B981;
+  --cat-dining:   #F97316;
+  --cat-transport:#3B82F6;
+  --cat-shopping: #8B5CF6;
+  --cat-bills:    #6366F1;
+  --cat-health:   #06B6D4;
+  --cat-salary:   #10B981;
+  --cat-other:    #64748B;
 }
 
 * {
   box-sizing: border-box;
-}
-
-* {
   -webkit-tap-highlight-color: transparent;
 }
 
 html {
   overflow-x: clip;
   min-height: 100%;
-  background: #f8fafc;
-}
-
-html.dark {
-  background: #0f172a;
+  background: var(--bg-base);
+  color-scheme: dark;
 }
 
 body {
   overflow-x: clip;
   min-height: 100%;
   margin: 0;
+  color: var(--text-primary);
   background:
-    radial-gradient(circle at top left, rgba(124, 58, 237, 0.08), transparent 28rem),
-    linear-gradient(180deg, #fafbff 0%, #f8fafc 54%, #eef2ff 100%);
+    radial-gradient(ellipse at 0% 0%, rgba(124,58,237,0.12) 0%, transparent 55%),
+    radial-gradient(ellipse at 100% 80%, rgba(16,185,129,0.06) 0%, transparent 40%),
+    var(--bg-base);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: geometricPrecision;
-}
-
-html.dark body {
-  background:
-    radial-gradient(circle at top left, rgba(99, 62, 242, 0.1), transparent 28rem),
-    linear-gradient(180deg, #1e293b 0%, #0f172a 54%, #1a1f35 100%);
 }
 
 button,
@@ -79,7 +108,7 @@ button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 a:focus-visible {
-  outline: 3px solid rgba(99, 62, 242, 0.3);
+  outline: 3px solid rgba(124, 58, 237, 0.4);
   outline-offset: 2px;
 }
 
@@ -124,14 +153,15 @@ a:focus-visible {
 }
 
 @layer components {
-  .fin-card { @apply rounded-[22px] bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)] ring-1 ring-[rgba(15,23,42,0.055)]; }
-  .fin-title { @apply text-[17px] font-extrabold tracking-[-0.02em] text-slate-900; }
-  .fin-copy { @apply mt-0.5 text-[12.5px] font-semibold leading-relaxed text-slate-500; }
-  .fin-icon { @apply grid h-10 w-10 shrink-0 place-items-center rounded-full; }
-  .fin-label { @apply grid gap-1.5 text-[12px] font-bold uppercase tracking-[0.04em] text-slate-500; }
-  .fin-input { @apply h-12 min-w-0 rounded-[15px] border-0 bg-slate-50 px-3 text-[14px] font-semibold normal-case tracking-normal text-slate-900 ring-1 ring-slate-200 outline-none transition focus:ring-2 focus:ring-violet-500; }
-  .fin-primary { @apply h-12 rounded-[16px] bg-violet-600 px-4 text-[14px] font-extrabold text-white shadow-lg shadow-violet-600/20 transition active:scale-[0.98]; }
-  .fin-secondary { @apply h-12 w-full rounded-[16px] bg-white px-4 text-[14px] font-extrabold text-slate-700 ring-1 ring-slate-200 transition active:scale-[0.98]; }
+  .fin-card    { @apply rounded-[22px] p-4; background: var(--bg-surface); box-shadow: var(--shadow-card); border: 1px solid var(--border); }
+  .fin-title   { @apply text-[17px] font-extrabold tracking-[-0.02em]; color: var(--text-primary); }
+  .fin-copy    { @apply mt-0.5 text-[12.5px] font-semibold leading-relaxed; color: var(--text-muted); }
+  .fin-icon    { @apply grid h-10 w-10 shrink-0 place-items-center rounded-full; }
+  .fin-label   { @apply grid gap-1.5 text-[12px] font-bold uppercase tracking-[0.04em]; color: var(--text-muted); }
+  .fin-input   { @apply h-12 min-w-0 rounded-[15px] border-0 px-3 text-[14px] font-semibold normal-case tracking-normal outline-none transition; background: var(--bg-elevated); color: var(--text-primary); border: 1px solid var(--border); }
+  .fin-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .fin-primary { @apply h-12 rounded-[16px] px-4 text-[14px] font-extrabold text-white transition active:scale-[0.98]; background: var(--accent); box-shadow: var(--shadow-accent); }
+  .fin-secondary { @apply h-12 w-full rounded-[16px] px-4 text-[14px] font-extrabold transition active:scale-[0.98]; background: var(--bg-elevated); color: var(--text-primary); border: 1px solid var(--border); }
 }
 
 .app-view { width: 100%; min-width: 0; animation: app-view-in 180ms ease-out both; }

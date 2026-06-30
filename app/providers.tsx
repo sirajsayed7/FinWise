@@ -23,7 +23,7 @@ export function Providers({ children }: { children: ReactNode }) {
   );
 
   return (
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+    <ThemeProvider attribute="class" defaultTheme="dark" forcedTheme="dark" enableSystem={false}>
       <QueryClientProvider client={queryClient}>
         {children}
         <Toaster
@@ -32,9 +32,9 @@ export function Providers({ children }: { children: ReactNode }) {
           closeButton
           toastOptions={{
             classNames: {
-              toast: "rounded-2xl border border-slate-200 bg-white text-slate-950 shadow-[0_16px_40px_rgba(15,23,42,0.12)] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-50",
+              toast: "rounded-2xl bg-[#1C1F35] text-[#F1F5F9] shadow-[0_16px_40px_rgba(0,0,0,0.5)]",
               title: "text-[14px] font-extrabold",
-              description: "text-[12px] font-semibold text-slate-500 dark:text-slate-400"
+              description: "text-[12px] font-semibold text-[#94A3B8]"
             }
           }}
         />
