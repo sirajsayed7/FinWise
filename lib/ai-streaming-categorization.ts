@@ -1,4 +1,4 @@
-import { openai } from "@/lib/supabase-client";
+import OpenAI from "openai";
 import type { CategorizationResult } from "@/lib/types";
 
 interface StreamingCategorizationParams {
@@ -20,6 +20,8 @@ export async function streamTransactionCategorization({
         `${i + 1}. Description: "${t.descriptionRaw}" | Merchant: "${t.merchant || "N/A"}" | Amount: $${t.amount}`
     )
     .join("\n");
+
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
   try {
     const stream = await openai.chat.completions.create({
