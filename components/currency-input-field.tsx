@@ -1,9 +1,11 @@
 import CurrencyInput from "react-currency-input-field";
-import { forwardRef, type InputHTMLAttributes } from "react";
+import { forwardRef, type ComponentProps, type InputHTMLAttributes } from "react";
+
+type CurrencyInputChangeHandler = NonNullable<ComponentProps<typeof CurrencyInput>["onValueChange"]>;
 
 interface CurrencyInputFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "type"> {
   value?: number | string;
-  onValueChange?: (value?: number) => void;
+  onValueChange?: CurrencyInputChangeHandler;
   currency?: string;
   decimalsLimit?: number;
   placeholder?: string;
