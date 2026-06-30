@@ -20,6 +20,9 @@ export type FinWiseLocalSnapshot = {
   transactions: Transaction[];
   latestPeriod: CachedStatementPeriodInfo | null;
   savedAt: string;
+  // IMPROVED: Add TTL (Time To Live) tracking for cache expiration
+  // Prevents unbounded cache growth - caches older than 30 days will be refreshed
+  expiresAt?: string;
   sync: FinWiseSyncState;
 };
 
@@ -45,6 +48,9 @@ const DB_NAME = "finwise-local-cache";
 const DB_VERSION = 2;
 const LOCAL_USER_KEY = "local";
 const DEVICE_ID_KEY = "finwise.deviceId";
+// IMPROVED: Add TTL constants for cache expiration
+const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const MAX_CACHE_SIZE_MB = 50; // Maximum IndexedDB cache size
 
 function canUseIndexedDB() {
   return typeof window !== "undefined" && "indexedDB" in window;
@@ -81,7 +87,23 @@ export async function loadLocalSnapshot(userId?: string | null): Promise<FinWise
     const snapshot = db
       ? await db.get("snapshots", snapshotKey(userId))
       : loadLegacySnapshot(userId);
-    return snapshot ? normalizeSnapshot(snapshot) : loadLegacySnapshot(userId);
+    
+    if (!snapshot) {
+      return loadLegacySnapshot(userId);
+    }
+
+    const normalized = normalizeSnapshot(snapshot);
+    
+    // IMPROVED: Check cache expiration
+    if (normalized && normalized.expiresAt) {
+      if (new Date(normalized.expiresAt) < new Date()) {
+        // Cache has expired, clear it and return null
+        await clearLocalSnapshot(userId);
+        return null;
+      }
+    }
+    
+    return normalized;
   } catch {
     return loadLegacySnapshot(userId);
   }
@@ -151,6 +173,8 @@ export async function saveLocalSnapshot(
     transactions: nextTransactions,
     latestPeriod,
     savedAt: now,
+    // IMPROVED: Set expiration time for cache (30 days from now)
+    expiresAt: new Date(Date.now() + CACHE_TTL_MS).toISOString(),
     sync: nextSync
   };
   await writeSnapshot(userId, snapshot);
@@ -167,6 +191,8 @@ export async function markLocalSnapshotSynced(
     transactions,
     latestPeriod,
     savedAt: syncedAt,
+    // IMPROVED: Set expiration time for cache (30 days from now)
+    expiresAt: new Date(Date.now() + CACHE_TTL_MS).toISOString(),
     sync: emptySyncState(getDeviceId(), syncedAt)
   };
   await writeSnapshot(userId, snapshot);

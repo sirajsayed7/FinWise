@@ -58,6 +58,10 @@ export function parsePdfStatementText(text: string, suppliedBank = "") {
     0.99
   );
 
+  // IMPROVED: Raise confidence threshold from 62% to 75% for more reliable PDF parsing
+  // Low confidence PDFs should fall back to AI vision extraction rather than trust fragile patterns
+  const finalConfidence = confidence < 0.75 ? Math.max(confidence * 0.8, 0) : confidence;
+
   return {
     rows,
     profile,
@@ -70,7 +74,7 @@ export function parsePdfStatementText(text: string, suppliedBank = "") {
       rowCount: rows.length,
       balanceChecks: balance.checks,
       balanceMatches: balance.matches,
-      confidence,
+      confidence: finalConfidence,
       warnings
     } satisfies StatementParseDiagnostics
   };

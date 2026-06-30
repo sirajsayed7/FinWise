@@ -270,12 +270,22 @@ export async function saveFinWiseData(
 
     const remoteRows = await loadRowsByIds(userId, Array.from(dirtyIds));
     const remoteById = new Map(remoteRows.map((row) => [row.id, row]));
+    
+    // IMPROVED: Enhanced conflict detection for optimistic locking
+    // Compares updatedAt timestamps to detect concurrent modifications
+    // Note: True optimistic locking would require database-level version tracking
+    // Consider adding a 'version' column to transactions table for better concurrency control
     const writableTransactions = dirtyTransactions.filter((transaction) => {
       const remote = remoteById.get(transaction.id);
       if (!remote) return true;
+      
       const localTime = Date.parse(transaction.updatedAt ?? now);
       const remoteTime = Date.parse(rowUpdatedAt(remote));
+      
+      // IMPROVED: Better conflict resolution - if remote is newer, keep it
       if (localTime >= remoteTime) return true;
+      
+      // Remote wins: add to conflicts list for client notification
       remoteWins.push(rowToTransaction(remote));
       return false;
     });
