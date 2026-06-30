@@ -51,7 +51,7 @@ export async function categorizeUnknownTransactions(transactions: Transaction[])
     try {
       const batchResults = await classifyTransactionBatch(openai, batch);
       batchResults.forEach((result, index) => {
-        if (result.ok) {
+        if (result.ok && result.data) {
           classificationResults.set(batch[index].id, result.data);
         }
       });
@@ -168,10 +168,14 @@ async function classifyTransaction(openai: OpenAI, transaction: Transaction): Pr
  * Reduces from N API calls to ceil(N/BATCH_SIZE) calls
  * ~15-20 transactions per request is optimal for gpt-4o-mini
  */
+type BatchClassificationResult =
+  | { ok: true; data: CategorizationResult }
+  | { ok: false; error: string };
+
 async function classifyTransactionBatch(
   openai: OpenAI,
   transactions: Transaction[]
-): Promise<Array<{ ok: boolean; data?: CategorizationResult; error?: string }>> {
+): Promise<BatchClassificationResult[]> {
   if (transactions.length === 0) {
     return [];
   }
