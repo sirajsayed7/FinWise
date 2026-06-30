@@ -1,15 +1,9 @@
-import CurrencyInput from "react-currency-input-field";
-import { forwardRef, type ComponentProps, type InputHTMLAttributes } from "react";
+import CurrencyInput, { type CurrencyInputProps } from "react-currency-input-field";
+import { forwardRef } from "react";
 
-type CurrencyInputChangeHandler = NonNullable<ComponentProps<typeof CurrencyInput>["onValueChange"]>;
-
-interface CurrencyInputFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "type"> {
-  value?: number | string;
-  onValueChange?: CurrencyInputChangeHandler;
-  currency?: string;
-  decimalsLimit?: number;
-  placeholder?: string;
-  prefix?: string;
+interface CurrencyInputFieldProps extends Omit<CurrencyInputProps, "value" | "defaultValue" | "className"> {
+  value?: string | number;
+  defaultValue?: string | number;
   className?: string;
   error?: string;
 }
@@ -18,28 +12,44 @@ export const CurrencyInputField = forwardRef<HTMLInputElement, CurrencyInputFiel
   (
     {
       value,
+      defaultValue,
       onValueChange,
-      currency = "USD",
       decimalsLimit = 2,
       placeholder = "0.00",
       prefix = "$ ",
       className = "",
       error,
       disabled,
-      ...props
+      id,
+      name,
+      maxLength,
+      allowDecimals,
+      allowNegativeValue,
+      decimalSeparator,
+      groupSeparator,
+      suffix
     },
     ref
   ) => {
+    const inputValue = value ?? defaultValue ?? "";
+
     return (
       <div className="w-full">
         <CurrencyInput
           ref={ref}
-          value={value}
+          value={inputValue}
+          defaultValue={typeof defaultValue === "undefined" ? undefined : String(defaultValue)}
           onValueChange={onValueChange}
           decimalsLimit={decimalsLimit}
           prefix={prefix}
+          suffix={suffix}
           placeholder={placeholder}
           disabled={disabled}
+          maxLength={maxLength}
+          allowDecimals={allowDecimals}
+          allowNegativeValue={allowNegativeValue}
+          decimalSeparator={decimalSeparator}
+          groupSeparator={groupSeparator}
           className={`
             w-full px-4 py-2 rounded-lg border-2 border-slate-200
             focus:border-forest focus:outline-none focus:ring-2 focus:ring-forest/20
@@ -50,7 +60,6 @@ export const CurrencyInputField = forwardRef<HTMLInputElement, CurrencyInputFiel
             ${error ? "border-red-500 dark:border-red-500" : ""}
             ${className}
           `}
-          {...props}
         />
         {error && <p className="mt-1 text-sm text-red-500 dark:text-red-400">{error}</p>}
       </div>
