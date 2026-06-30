@@ -8,6 +8,19 @@
   color: #111827;
 }
 
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    background: #0f172a;
+    color: #e2e8f0;
+  }
+}
+
+html.dark {
+  color-scheme: dark;
+  background: #0f172a;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -22,6 +35,10 @@ html {
   background: #f8fafc;
 }
 
+html.dark {
+  background: #0f172a;
+}
+
 body {
   overflow-x: clip;
   min-height: 100%;
@@ -32,6 +49,12 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: geometricPrecision;
+}
+
+html.dark body {
+  background:
+    radial-gradient(circle at top left, rgba(99, 62, 242, 0.1), transparent 28rem),
+    linear-gradient(180deg, #1e293b 0%, #0f172a 54%, #1a1f35 100%);
 }
 
 button,
