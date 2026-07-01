@@ -1,4 +1,5 @@
 import { openDB, type DBSchema } from "idb";
+import { safeLocalStorageGet, safeLocalStorageRemove, safeLocalStorageSet } from "@/lib/storage";
 import type { Transaction, TransactionTombstone } from "@/lib/types";
 
 export type CachedStatementPeriodInfo = {
@@ -73,11 +74,11 @@ function snapshotKey(userId?: string | null) {
 
 export function getDeviceId() {
   if (typeof window === "undefined") return "server";
-  const current = window.localStorage.getItem(DEVICE_ID_KEY);
+  const current = safeLocalStorageGet(DEVICE_ID_KEY);
   if (current) return current;
   const generated = globalThis.crypto?.randomUUID?.()
     ?? `device-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  window.localStorage.setItem(DEVICE_ID_KEY, generated);
+  safeLocalStorageSet(DEVICE_ID_KEY, generated);
   return generated;
 }
 
@@ -268,9 +269,9 @@ export async function clearLocalSnapshot(userId?: string | null) {
   }
 
   if (typeof window !== "undefined") {
-    window.localStorage.removeItem(getLegacySnapshotKey(userId));
-    window.localStorage.removeItem("finwise.transactions");
-    window.localStorage.removeItem("finwise.latestPeriod");
+    safeLocalStorageRemove(getLegacySnapshotKey(userId));
+    safeLocalStorageRemove("finwise.transactions");
+    safeLocalStorageRemove("finwise.latestPeriod");
   }
 }
 
@@ -347,16 +348,16 @@ function transactionFingerprint(transaction: Transaction) {
 function loadLegacySnapshot(userId?: string | null): FinWiseLocalSnapshot | null {
   if (typeof window === "undefined") return null;
   try {
-    const rawSnapshot = window.localStorage.getItem(getLegacySnapshotKey(userId));
+    const rawSnapshot = safeLocalStorageGet(getLegacySnapshotKey(userId));
     if (rawSnapshot) {
       const parsed = JSON.parse(rawSnapshot) as FinWiseLocalSnapshot;
       if (Array.isArray(parsed.transactions)) return normalizeSnapshot(parsed);
     }
 
-    const rawTransactions = window.localStorage.getItem("finwise.transactions");
+    const rawTransactions = safeLocalStorageGet("finwise.transactions");
     if (!rawTransactions) return null;
     const transactions = JSON.parse(rawTransactions) as Transaction[];
-    const rawPeriod = window.localStorage.getItem("finwise.latestPeriod");
+    const rawPeriod = safeLocalStorageGet("finwise.latestPeriod");
     return normalizeSnapshot({
       transactions: Array.isArray(transactions) ? transactions : [],
       latestPeriod: rawPeriod ? JSON.parse(rawPeriod) as CachedStatementPeriodInfo : null,
@@ -371,7 +372,7 @@ function loadLegacySnapshot(userId?: string | null): FinWiseLocalSnapshot | null
 function saveLegacySnapshot(userId: string | null | undefined, snapshot: FinWiseLocalSnapshot) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(getLegacySnapshotKey(userId), JSON.stringify(snapshot));
+    safeLocalStorageSet(getLegacySnapshotKey(userId), JSON.stringify(snapshot));
   } catch {
     // Local backup is best-effort.
   }

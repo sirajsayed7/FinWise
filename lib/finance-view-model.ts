@@ -1,5 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 import { categories } from "@/lib/categorization";
+import { safeLocalStorageGet, safeLocalStorageSet } from "@/lib/storage";
 import { categoryColors } from "@/lib/dashboard-constants";
 import type { SpendingPeriod, StatementPeriodInfo, StatementSummary } from "@/lib/dashboard-types";
 import type { MerchantRule, SpendingRow, Transaction } from "@/lib/types";
@@ -396,11 +397,11 @@ export function saveMerchantRule(transaction: Transaction, category: Transaction
   if (!pattern) return null;
   const savedRule = { pattern, merchant: transaction.merchant, category, subcategory: category };
   try {
-    const current = JSON.parse(window.localStorage.getItem("finwise.merchantRules") ?? "[]") as MerchantRule[];
+    const current = JSON.parse(safeLocalStorageGet("finwise.merchantRules", "[]") ?? "[]") as MerchantRule[];
     const next = [savedRule, ...current.filter((rule) => rule.pattern !== pattern)];
-    window.localStorage.setItem("finwise.merchantRules", JSON.stringify(next.slice(0, 200)));
+    safeLocalStorageSet("finwise.merchantRules", JSON.stringify(next.slice(0, 200)));
   } catch {
-    window.localStorage.setItem("finwise.merchantRules", JSON.stringify([savedRule]));
+    safeLocalStorageSet("finwise.merchantRules", JSON.stringify([savedRule]));
   }
   return savedRule;
 }
@@ -408,7 +409,7 @@ export function saveMerchantRule(transaction: Transaction, category: Transaction
 export function getStoredMerchantRules(): MerchantRule[] {
   if (typeof window === "undefined") return [];
   try {
-    const parsed = JSON.parse(window.localStorage.getItem("finwise.merchantRules") ?? "[]") as MerchantRule[];
+    const parsed = JSON.parse(safeLocalStorageGet("finwise.merchantRules", "[]") ?? "[]") as MerchantRule[];
     return Array.isArray(parsed)
       ? parsed.filter((rule) => typeof rule.pattern === "string" && categories.includes(rule.category))
       : [];

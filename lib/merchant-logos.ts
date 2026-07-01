@@ -1,4 +1,5 @@
 import { merchantLogoDomains } from "@/lib/dashboard-constants";
+import { safeLocalStorageGet, safeLocalStorageSet } from "@/lib/storage";
 import type { MerchantLogoRecord, Transaction } from "@/lib/types";
 
 const logoFallbackClasses = [
@@ -20,7 +21,7 @@ export function getMerchantLogoUrls(merchant: string) {
 
   if (typeof window !== "undefined") {
     try {
-      const cached = window.localStorage.getItem(key);
+      const cached = safeLocalStorageGet(key);
       if (cached) {
         const urls = (JSON.parse(cached) as string[]).filter((url) => !badUrls.includes(url));
         if (urls.length) return urls;
@@ -33,7 +34,7 @@ export function getMerchantLogoUrls(merchant: string) {
   const urls = getKnownMerchantLogoUrls(merchant).filter((url) => !badUrls.includes(url));
   if (typeof window !== "undefined") {
     try {
-      window.localStorage.setItem(key, JSON.stringify(urls));
+      safeLocalStorageSet(key, JSON.stringify(urls));
     } catch {
       // The image can still load for this session.
     }
@@ -56,7 +57,7 @@ export function getKnownMerchantLogoUrls(merchant: string) {
 export function cacheMerchantLogoOverrides(logos: MerchantLogoRecord[]) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem("finwise.logoOverrides", JSON.stringify(logos));
+    safeLocalStorageSet("finwise.logoOverrides", JSON.stringify(logos));
   } catch {
     // Logo persistence should never block financial data.
   }
@@ -84,9 +85,9 @@ export function rememberBadLogoUrl(merchant: string, url: string) {
   if (typeof window === "undefined") return;
   try {
     const key = getBadLogoStorageKey(merchant);
-    const current = JSON.parse(window.localStorage.getItem(key) ?? "[]") as string[];
+    const current = JSON.parse(safeLocalStorageGet(key, "[]") ?? "[]") as string[];
     if (!current.includes(url)) {
-      window.localStorage.setItem(key, JSON.stringify([...current, url].slice(-12)));
+      safeLocalStorageSet(key, JSON.stringify([...current, url].slice(-12)));
     }
   } catch {
     // Broken logo storage should never block the transaction list.
@@ -109,7 +110,7 @@ export function getLogoFallbackClass(merchant: string) {
 export function preloadMerchantLogos(merchants: string[]) {
   const unique = Array.from(new Set(merchants.filter(Boolean)))
     .filter((merchant) => !prefetchedMerchantLogos.has(merchant))
-    .slice(0, 80);
+    .slice(0, 40);
   if (!unique.length || typeof window === "undefined") return () => undefined;
 
   const preload = (items: string[]) => {
@@ -123,22 +124,22 @@ export function preloadMerchantLogos(merchants: string[]) {
     }
   };
 
-  preload(unique.slice(0, 18));
-  const remaining = unique.slice(18);
+  preload(unique.slice(0, 10));
+  const remaining = unique.slice(10);
   if (!remaining.length) return () => undefined;
 
   const idle = window.requestIdleCallback
     ?? ((callback: IdleRequestCallback) =>
       window.setTimeout(() => callback({ didTimeout: false, timeRemaining: () => 0 }), 250));
   const cancelIdle = window.cancelIdleCallback ?? window.clearTimeout;
-  const idleId = idle(() => preload(remaining), { timeout: 2500 });
+  const idleId = idle(() => preload(remaining), { timeout: 1500 });
   return () => cancelIdle(idleId);
 }
 
 function getCachedMerchantLogoOverride(merchant: string) {
   if (typeof window === "undefined") return null;
   try {
-    const logos = JSON.parse(window.localStorage.getItem("finwise.logoOverrides") ?? "[]") as MerchantLogoRecord[];
+    const logos = JSON.parse(safeLocalStorageGet("finwise.logoOverrides", "[]") ?? "[]") as MerchantLogoRecord[];
     const key = getMerchantLogoKey(merchant);
     return logos.find((logo) => logo.merchantKey === key) ?? null;
   } catch {
@@ -149,7 +150,7 @@ function getCachedMerchantLogoOverride(merchant: string) {
 function getBadLogoUrls(merchant: string) {
   if (typeof window === "undefined") return [];
   try {
-    return JSON.parse(window.localStorage.getItem(getBadLogoStorageKey(merchant)) ?? "[]") as string[];
+    return JSON.parse(safeLocalStorageGet(getBadLogoStorageKey(merchant), "[]") ?? "[]") as string[];
   } catch {
     return [];
   }

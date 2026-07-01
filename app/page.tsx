@@ -27,6 +27,7 @@ import {
 } from "@/lib/local-cache";
 import { cacheMerchantLogoOverrides, mergeLogoOverrides, preloadMerchantLogos } from "@/lib/merchant-logos";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase-client";
+import { safeLocalStorageGet, safeLocalStorageSet } from "@/lib/storage";
 import type { BudgetRecord, DashboardMetrics, FinancialGoal, MerchantLogoRecord, MerchantRule, Transaction } from "@/lib/types";
 
 function ViewLoading() {
@@ -63,6 +64,15 @@ export default function FinWiseApp() {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const prefetchedPageRef = useRef<{ offset: number; page: TransactionPage } | null>(null);
   const notifications = useMemo(() => metrics ? buildFinanceNotifications(transactions, budgets, metrics) : [], [transactions, budgets, metrics]);
+  const derivedTransactions = useMemo(() => applySavedMerchantRules(dedupe(sanitizeTransactions(transactions))), [transactions]);
+  const transactionSummary = useMemo(() => {
+    const totals = derivedTransactions.reduce((acc, transaction) => {
+      if (transaction.direction === "income") acc.income += transaction.amount;
+      if (transaction.direction === "expense") acc.expense += transaction.amount;
+      return acc;
+    }, { income: 0, expense: 0 });
+    return { ...totals, net: totals.income - totals.expense };
+  }, [derivedTransactions]);
   const [localCacheReady, setLocalCacheReady] = useState(isSupabaseConfigured);
   const userChangedDataRef = useRef(false);
   const forceFullSyncRef = useRef(false);
@@ -204,7 +214,7 @@ export default function FinWiseApp() {
           }).catch(() => undefined);
         }
         setUploadStatus(nextTransactions.length ? `${nextTransactions.length} transactions` : "No uploads yet");
-        window.localStorage.setItem("finwise.merchantRules", JSON.stringify(localRules));
+        safeLocalStorageSet("finwise.merchantRules", JSON.stringify(localRules));
         cacheMerchantLogoOverrides(logoOverrides);
         if (!reconciled.hasPendingSync && data?.normalized) {
           await saveLocalSnapshot(authUser!.id, nextTransactions, nextPeriod, { replaceFromCloud: true });
@@ -239,7 +249,7 @@ export default function FinWiseApp() {
     const generation = ++syncGenerationRef.current;
     const timer = window.setTimeout(() => {
       void syncPendingChanges();
-    }, 450);
+    }, 650);
 
     async function syncPendingChanges() {
       const snapshot = await saveLocalSnapshot(
@@ -406,7 +416,7 @@ export default function FinWiseApp() {
       setMerchantLogoOverrides(parsed.merchantLogoOverrides ?? []);
       cacheMerchantLogoOverrides(parsed.merchantLogoOverrides ?? []);
       if (parsed.merchantRules) {
-        window.localStorage.setItem("finwise.merchantRules", JSON.stringify(parsed.merchantRules.slice(0, 200)));
+        safeLocalStorageSet("finwise.merchantRules", JSON.stringify(parsed.merchantRules.slice(0, 200)));
       }
       setUploadStatus(`${restoredTransactions.length} transactions restored`);
       toast.success("Backup restored", {
@@ -432,7 +442,7 @@ export default function FinWiseApp() {
     formData.append("file", file);
     formData.append("bank", "Auto detect");
     formData.append("keepOriginal", "false");
-    formData.append("rules", window.localStorage.getItem("finwise.merchantRules") ?? "[]");
+    formData.append("rules", safeLocalStorageGet("finwise.merchantRules", "[]") ?? "[]");
     setUploadStatus("Uploading and categorizing...");
 
     let response: Response;
