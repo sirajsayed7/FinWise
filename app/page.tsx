@@ -30,7 +30,7 @@ import { getSupabase, isSupabaseConfigured } from "@/lib/supabase-client";
 import type { BudgetRecord, DashboardMetrics, FinancialGoal, MerchantLogoRecord, MerchantRule, Transaction } from "@/lib/types";
 
 function ViewLoading() {
-  return <div className="h-40 animate-pulse rounded-[24px] bg-[var(--bg-surface)] shadow-sm ring-1 ring-[rgba(15,23,42,0.05)]" />;
+  return <div className="h-40 animate-pulse rounded-[24px]" style={{ background: "var(--bg-surface)", boxShadow: "var(--shadow-card)" }} />;
 }
 
 const InsightsPage = dynamic(() => import("@/components/finwise/insights-page").then((module) => module.InsightsPage), { ssr: false, loading: ViewLoading });
@@ -622,9 +622,9 @@ export default function FinWiseApp() {
   }
 
   return (
-    <main className="min-h-screen bg-[var(--bg-elevated)] text-[var(--text-primary)]">
+    <main className="min-h-screen" style={{ background: "var(--bg-base)" }}>
       <a href="#main-content" className="sr-only z-50 rounded bg-[var(--bg-surface)] p-3 focus:not-sr-only focus:fixed focus:left-3 focus:top-3">Skip to content</a>
-      <div id="main-content" className="mx-auto flex min-h-screen w-full max-w-[440px] flex-col bg-[#FAFBFF] px-4 pb-[calc(108px+env(safe-area-inset-bottom))] pt-[calc(14px+env(safe-area-inset-top))] min-[391px]:px-[18px] sm:my-5 sm:rounded-[34px] sm:border sm:border-white sm:shadow-2xl sm:shadow-slate-300/50">
+      <div id="main-content" className="mx-auto flex min-h-screen w-full max-w-[440px] flex-col px-4 pb-[calc(108px+env(safe-area-inset-bottom))] pt-[calc(14px+env(safe-area-inset-top))] min-[391px]:px-[18px] sm:my-5 sm:rounded-[34px] sm:border sm:shadow-2xl" style={{ background: "var(--bg-base)", borderColor: "var(--border)", boxShadow: "0 25px 60px rgba(0,0,0,0.6)" }}>
         <div key={activeView} className="app-view">
         {activeView === "home" ? (
           <HomeDashboard displayName={displayName} transactions={transactions} metrics={metrics} notificationCount={notifications.length} latestPeriod={latestPeriod} uploadStatus={uploadStatus} transactionCount={metrics?.transactionCount ?? transactionCount} onUpload={uploadStatement} setActiveView={setActiveView} />
