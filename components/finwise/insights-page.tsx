@@ -48,7 +48,7 @@ export function InsightsPage({ transactions, metrics }: { transactions: Transact
         </div>
       </div>
 
-      <div className="mb-4 grid h-10 grid-cols-3 rounded-[15px] replace_bg text-[12.5px] font-semibold text-[var(--text-secondary)] shadow-sm ring-1 ring-[var(--border)]">
+      <div className="mb-4 grid h-10 grid-cols-3 rounded-[15px] bg-[var(--bg-elevated)] text-[12.5px] font-semibold text-[var(--text-secondary)] shadow-sm ring-1 ring-[var(--border)]">
         {periods.map((item) => (
           <button key={item} onClick={() => setPeriod(item)} className={item === period ? "rounded-[12px] bg-[var(--accent)] px-2 text-white shadow-md shadow-[var(--accent-glow)]" : "rounded-[12px] px-2"}>
             {item}
@@ -108,7 +108,7 @@ export function InsightsPage({ transactions, metrics }: { transactions: Transact
                     <span className="text-[12px] font-bold text-[var(--text-primary)]">{index + 1}</span>
                     <span className="h-3 w-3 rounded-full" style={{ backgroundColor: item.color }} />
                     <span className="min-w-0 truncate text-[12.5px] font-semibold text-[var(--text-primary)] min-[391px]:text-[13px]">{item.label}</span>
-                    <span className="h-1.5 rounded-full bg-slate-100">
+                    <span className="h-1.5 rounded-full bg-[var(--bg-elevated)]">
                       <span className="block h-full rounded-full bg-[var(--accent)]" style={{ width: `${Math.min(100, item.percent * 3.2)}%` }} />
                     </span>
                     <span className="justify-self-end whitespace-nowrap text-[11.5px] font-medium text-[var(--text-secondary)] min-[391px]:text-[12px]">QAR {formatAmount(item.amount)}</span>

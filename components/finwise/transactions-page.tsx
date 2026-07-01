@@ -93,7 +93,7 @@ export function TransactionsPage({ transactions, metrics, hasMoreRemote, isLoadi
         </div>
       </div>
 
-      <section className="rounded-[22px] replace_bg.5 shadow-[var(--shadow-card)] ring-1 ring-[var(--border)] min-[391px]:p-4">
+      <section className="rounded-[22px] bg-[var(--bg-surface)] p-3.5 shadow-[var(--shadow-card)] ring-1 ring-[var(--border)] min-[391px]:p-4">
         <div className="flex items-center gap-3">
           <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[var(--accent-soft)] text-[var(--accent)] min-[391px]:h-[52px] min-[391px]:w-[52px]"><StatementIcon /></div>
           <button onClick={() => setSheet("Statement selector")} className="min-w-0 flex-1 text-left">
@@ -148,7 +148,7 @@ export function TransactionsPage({ transactions, metrics, hasMoreRemote, isLoadi
         </div>
 
         {reviewRows.length ? (
-          <section className="mt-4 rounded-[22px] replace_bg shadow-[var(--shadow-card)] ring-1 ring-[var(--border)]">
+          <section className="mt-4 rounded-[22px] bg-[var(--bg-surface)] shadow-[var(--shadow-card)] ring-1 ring-[var(--border)]">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-[18px] font-extrabold tracking-[-0.02em] text-[var(--text-primary)]">Review Queue</h2>
@@ -258,7 +258,7 @@ export function ReviewWorkflowPage({ transactions, setTransactions, setActiveVie
 
       <div className="mt-4 grid gap-3">
         {reviewRows.length ? reviewRows.map((row) => (
-          <article key={row.id} className="rounded-[20px] replace_bg.5 shadow-[var(--shadow-card)] ring-1 ring-[var(--border)]">
+          <article key={row.id} className="rounded-[20px] bg-[var(--bg-surface)] p-3.5 shadow-[var(--shadow-card)] ring-1 ring-[var(--border)]">
             <div className="flex items-start gap-3">
               <span className={`grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-full text-[14px] font-extrabold ${categoryAvatarStyles[row.category] ?? categoryAvatarStyles.Other}`}>
                 <MerchantLogo merchant={row.merchant} fallback={row.merchant.slice(0, 1) || "?"} />

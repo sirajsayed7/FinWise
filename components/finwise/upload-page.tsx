@@ -43,7 +43,7 @@ export function UploadPage({
         <span className="mt-4 rounded-full bg-[var(--accent)] px-5 py-2.5 text-[14px] font-bold text-white shadow-lg shadow-[var(--accent-glow)]">Choose File</span>
         <input type="file" accept=".csv,.pdf,.xls,.xlsx,.txt" onChange={onUpload} className="sr-only" />
       </label>
-      <div className="mt-4 rounded-[24px] replace_bg shadow-[var(--shadow-card)] ring-1 ring-[var(--border)]">
+      <div className="mt-4 rounded-[24px] bg-[var(--bg-surface)] shadow-[var(--shadow-card)] ring-1 ring-[var(--border)]">
         <h3 className="text-[17px] font-extrabold">Statement details</h3>
         <div className="mt-3 grid gap-3">
           <FieldPreview label="Bank name" value={pendingImport?.bank ?? "Detected automatically"} />
@@ -77,7 +77,7 @@ function ImportReviewCard({ pendingImport, onConfirm, onCancel, onRemove, onUpda
   );
 
   return (
-    <section className="mt-4 w-full max-w-full overflow-hidden rounded-[24px] replace_bg shadow-[var(--shadow-card)] ring-1 ring-[var(--border)]">
+    <section className="mt-4 w-full max-w-full overflow-hidden rounded-[24px] bg-[var(--bg-surface)] shadow-[var(--shadow-card)] ring-1 ring-[var(--border)]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[12px] font-extrabold uppercase tracking-[0.12em] text-[var(--accent)]">Review before saving</p>
@@ -95,7 +95,7 @@ function ImportReviewCard({ pendingImport, onConfirm, onCancel, onRemove, onUpda
 
       <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-bold">
         <span className="rounded-full bg-[var(--accent-soft)] px-2.5 py-1 text-violet-700">{pendingImport.bank}</span>
-        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">{pendingImport.currency}</span>
+        <span className="rounded-full bg-[var(--bg-elevated)] px-2.5 py-1 text-[var(--text-secondary)]">{pendingImport.currency}</span>
         {pendingImport.diagnostics ? (
           <span className={pendingImport.diagnostics.confidence >= 0.75 ? "rounded-full bg-[var(--success-soft)] px-2.5 py-1 text-[var(--success)]" : "rounded-full bg-[var(--warning-soft)] px-2.5 py-1 text-[var(--warning)]"}>
             {Math.round(pendingImport.diagnostics.confidence * 100)}% parse confidence
@@ -135,7 +135,7 @@ const PendingTransactionRow = memo(function PendingTransactionRow({
   onUpdate: (transactionId: string, patch: PendingTransactionPatch) => void;
 }) {
   return (
-    <article className="min-w-0 overflow-hidden rounded-[16px] replace_bg shadow-[0_8px_18px_rgba(15,23,42,0.035)] ring-1 ring-[var(--border)]">
+    <article className="min-w-0 overflow-hidden rounded-[16px] bg-[var(--bg-surface)] shadow-[0_8px_18px_rgba(15,23,42,0.035)] ring-1 ring-[var(--border)]">
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className={`grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full text-[12px] font-extrabold ${categoryAvatarStyles[transaction.category] ?? categoryAvatarStyles.Other}`}>

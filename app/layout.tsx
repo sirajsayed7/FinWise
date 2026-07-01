@@ -11,12 +11,12 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     title: "FinWise",
-    statusBarStyle: "default"
+    statusBarStyle: "black-translucent"
   }
 };
 
 export const viewport: Viewport = {
-  themeColor: "#633EF2",
+  themeColor: "#0D0F1C",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -25,8 +25,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
-      <body suppressHydrationWarning>
+    <html lang="en" className="dark" style={{ background: "#0D0F1C" }}>
+      <body suppressHydrationWarning style={{ background: "#0D0F1C" }}>
         <Providers>{children}</Providers>
         <Analytics />
         <SpeedInsights />

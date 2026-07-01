@@ -47,13 +47,13 @@ export function CategoryCorrectionSheet({
             </Dialog.Overlay>
             <Dialog.Content asChild>
               <motion.section
-                className="fixed inset-x-0 bottom-0 z-30 mx-auto w-full max-w-[430px] rounded-t-[28px] replace_bg pb-[calc(18px+env(safe-area-inset-bottom))] shadow-2xl outline-none"
+                className="fixed inset-x-0 bottom-0 z-30 mx-auto w-full max-w-[430px] rounded-t-[28px] bg-[var(--bg-surface)] pb-[calc(18px+env(safe-area-inset-bottom))] shadow-2xl outline-none"
                 initial={{ y: 36, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: 36, opacity: 0 }}
                 transition={{ type: "spring", stiffness: 360, damping: 34 }}
               >
-                <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-slate-200" />
+                <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-[var(--bg-overlay)]" />
                 <Dialog.Title className="text-[20px] font-extrabold tracking-[-0.03em] text-[var(--text-primary)]">Correct category</Dialog.Title>
                 <Dialog.Description className="mt-1 text-[13px] font-medium text-[var(--text-secondary)]">{transaction.merchant}</Dialog.Description>
                 <button
@@ -61,7 +61,7 @@ export function CategoryCorrectionSheet({
                   onClick={() => setApplyAllMatching((current) => !current)}
                   className={cn(
                     "mt-3 flex min-h-[44px] w-full items-center justify-between gap-3 rounded-[16px] px-3 text-left text-[12px] font-extrabold ring-1 transition",
-                    applyAllMatching ? "bg-[var(--accent-soft)] text-[var(--text-accent)] ring-violet-100" : "bg-[var(--bg-elevated)] text-[var(--text-secondary)] ring-[var(--border)]"
+                    applyAllMatching ? "bg-[var(--accent-soft)] text-[var(--text-accent)] ring-[var(--accent-border)]" : "bg-[var(--bg-elevated)] text-[var(--text-secondary)] ring-[var(--border)]"
                   )}
                 >
                   <span>Apply to all matching merchants</span>
@@ -114,13 +114,13 @@ export function BottomSheet({
             </Dialog.Overlay>
             <Dialog.Content asChild>
               <motion.section
-                className="fixed inset-x-0 bottom-0 z-30 mx-auto max-h-[84vh] w-full max-w-[430px] overflow-hidden rounded-t-[28px] replace_bg pb-[calc(18px+env(safe-area-inset-bottom))] shadow-2xl outline-none"
+                className="fixed inset-x-0 bottom-0 z-30 mx-auto max-h-[84vh] w-full max-w-[430px] overflow-hidden rounded-t-[28px] bg-[var(--bg-surface)] pb-[calc(18px+env(safe-area-inset-bottom))] shadow-2xl outline-none"
                 initial={{ y: 36, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: 36, opacity: 0 }}
                 transition={{ type: "spring", stiffness: 360, damping: 34 }}
               >
-                <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-slate-200" />
+                <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-[var(--bg-overlay)]" />
                 <Dialog.Title className="text-[20px] font-extrabold tracking-[-0.03em] text-[var(--text-primary)]">{title}</Dialog.Title>
                 <div className="mt-4 max-h-[58vh] overflow-y-auto pr-1">
                   <SheetContent title={title} transactions={transactions} emptyMessage={emptyMessage} />
@@ -189,7 +189,7 @@ function SheetContent({ title, transactions, emptyMessage }: { title: string; tr
     const flexibleSpend = (orderingOut?.amount ?? 0) + (categoryRows.find((row) => row.label === "Shopping")?.amount ?? 0) + (categoryRows.find((row) => row.label === "Subscriptions")?.amount ?? 0);
     const saving = Math.max(0, flexibleSpend * 0.12);
     return (
-      <div className="rounded-[20px] bg-[var(--success-soft)] p-4 ring-1 ring-emerald-100">
+      <div className="rounded-[20px] bg-[var(--success-soft)] p-4 ring-1 ring-[var(--border)]">
         <p className="text-[13px] font-semibold text-[var(--success)]">Estimated monthly opportunity</p>
         <p className="mt-1 text-[30px] font-extrabold tracking-[-0.04em] text-[var(--success)]">QAR {formatAmount(saving)}</p>
         <p className="mt-2 text-[13px] font-medium leading-relaxed text-[var(--text-secondary)]">Based on ordering out, shopping, and subscriptions. Reduce the highest flexible categories by 10-15% to unlock this saving.</p>

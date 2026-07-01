@@ -41,7 +41,7 @@ export function SettingsPage({ setActiveView, authEmail, syncStatus, onSignOut, 
     <section>
       <PageHeader title="Settings" subtitle="Manage privacy, categories, rules, and exports." />
       <div className="grid gap-3.5">
-        <section className="rounded-[23px] replace_bg shadow-[var(--shadow-card)] ring-1 ring-[var(--border)]">
+        <section className="rounded-[23px] bg-[var(--bg-surface)] shadow-[var(--shadow-card)] ring-1 ring-[var(--border)]">
           <h2 className="text-[17px] font-extrabold tracking-[-0.02em]">Account</h2>
           <div className="mt-3 grid gap-2">
             <FieldPreview label="Signed in as" value={authEmail ?? "Local mode"} />
@@ -53,7 +53,7 @@ export function SettingsPage({ setActiveView, authEmail, syncStatus, onSignOut, 
             <p className="mt-3 rounded-[14px] bg-[var(--warning-soft)] p-3 text-[12px] font-semibold leading-relaxed text-[var(--warning)]">Add Supabase environment variables to enable hosted accounts.</p>
           )}
         </section>
-        <section className="rounded-[23px] replace_bg shadow-[var(--shadow-card)] ring-1 ring-[var(--border)]">
+        <section className="rounded-[23px] bg-[var(--bg-surface)] shadow-[var(--shadow-card)] ring-1 ring-[var(--border)]">
           <h2 className="text-[17px] font-extrabold tracking-[-0.02em]">Data & Privacy</h2>
           <p className="mt-1 text-[12.5px] font-semibold leading-snug text-[var(--text-secondary)]">Original statements are deleted after processing unless private storage is enabled.</p>
           <div className="mt-3 grid grid-cols-2 gap-2">
@@ -86,7 +86,7 @@ function StatementHistoryCardV2({ statement, onDelete }: { statement: StatementS
     : "Dates unavailable";
 
   return (
-    <article className="rounded-[24px] replace_bg shadow-[var(--shadow-card)] ring-1 ring-[var(--border)]">
+    <article className="rounded-[24px] bg-[var(--bg-surface)] shadow-[var(--shadow-card)] ring-1 ring-[var(--border)]">
       <div className="flex items-start gap-3">
         <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[var(--accent-soft)] text-[var(--accent)]"><StatementIcon /></div>
         <div className="min-w-0 flex-1">
@@ -127,7 +127,7 @@ function MiniStatementMetric({ label, value, tone = "slate" }: { label: string; 
 
 function SettingsGroup({ title, items }: { title: string; items: string[] }) {
   return (
-    <section className="rounded-[23px] replace_bg shadow-[var(--shadow-card)] ring-1 ring-[var(--border)]">
+    <section className="rounded-[23px] bg-[var(--bg-surface)] shadow-[var(--shadow-card)] ring-1 ring-[var(--border)]">
       <h2 className="text-[17px] font-extrabold tracking-[-0.02em]">{title}</h2>
       <div className="mt-2.5 divide-y divide-[var(--border)]">
         {items.map((item) => (
